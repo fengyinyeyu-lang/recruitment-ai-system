@@ -49,7 +49,11 @@ def register(username, password):
 
     users[username] = password
     _save_users(users)
-    return True, "注册成功，请返回登录"
+    
+    # 注册成功后直接写入登录态，实现自动登录
+    st.session_state['logged_in'] = True
+    st.session_state['username'] = username
+    return True, "注册成功，正在为您自动登录并进入系统..."
 
 
 def check_login():
@@ -93,5 +97,8 @@ def _render_login_page():
                 success, msg = register(username, password)
                 if success:
                     st.success(msg)
+                    import time
+                    time.sleep(1)  # 稍微停留一秒展示成功信息，提升体验
+                    st.rerun()
                 else:
                     st.error(msg)

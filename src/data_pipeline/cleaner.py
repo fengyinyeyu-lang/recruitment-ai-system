@@ -154,8 +154,11 @@ class DataCleaner:
         return self.df
 
 
+import streamlit as st
+
+@st.cache_data(show_spinner=False)
 def load_processed_data(file_path=None):
-    """加载已清洗的数据（供前端页面调用）"""
+    """加载已清洗的数据（供前端页面调用，并使用 Streamlit 缓存加速）"""
     if file_path is None:
         file_path = os.path.join(PROJECT_ROOT, 'data', 'processed', 'cleaned_jobs.csv')
     if not os.path.exists(file_path):
@@ -166,8 +169,9 @@ def load_processed_data(file_path=None):
         return pd.read_csv(file_path, encoding='utf-8')
 
 
+@st.cache_data(show_spinner=False)
 def load_count_positions(file_path=None):
-    """加载岗位统计数据"""
+    """加载岗位统计数据（供前端页面调用，并使用 Streamlit 缓存加速）"""
     if file_path is None:
         file_path = os.path.join(PROJECT_ROOT, 'data', 'processed', 'count_positions.csv')
     if not os.path.exists(file_path):

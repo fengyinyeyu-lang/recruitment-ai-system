@@ -27,6 +27,9 @@ PALETTE_DANGER = '#e74a3b'
 MACAROON_COLORS = [PALETTE_PRIMARY, PALETTE_SUCCESS, PALETTE_INFO, PALETTE_WARNING, PALETTE_DANGER]
 
 
+import streamlit as st
+
+@st.cache_data(show_spinner=False)
 def plot_salary_distribution(df, salary_col='salary_avg'):
     """
     图表1：全行业薪资分布直方图（含核密度估计）
@@ -43,6 +46,7 @@ def plot_salary_distribution(df, salary_col='salary_avg'):
     return fig
 
 
+@st.cache_data(show_spinner=False)
 def plot_city_salary(df, city_col='city', salary_col='salary_avg', top_n=10):
     """
     图表2：城市平均薪酬对比条形图
@@ -61,6 +65,7 @@ def plot_city_salary(df, city_col='city', salary_col='salary_avg', top_n=10):
     return fig
 
 
+@st.cache_data(show_spinner=False)
 def plot_education_pie(df, edu_col='education'):
     """
     图表3：学历要求分布饼图
@@ -88,6 +93,7 @@ def plot_education_pie(df, edu_col='education'):
     return fig
 
 
+@st.cache_data(show_spinner=False)
 def generate_wordcloud(df, text_col='positionDetail', max_words=150):
     """
     图表4：岗位描述核心技能词云
@@ -129,6 +135,7 @@ def generate_wordcloud(df, text_col='positionDetail', max_words=150):
     return fig
 
 
+@st.cache_data(show_spinner=False)
 def plot_experience_salary(df, exp_col='workYear', salary_col='salary_avg'):
     """
     图表5：工作经验与薪资关联箱线图
@@ -158,6 +165,7 @@ def plot_experience_salary(df, exp_col='workYear', salary_col='salary_avg'):
     return fig
 
 
+@st.cache_data(show_spinner=False)
 def plot_position_demand(count_df, top_n=20):
     """
     附加图表：岗位需求量 Top-N 柱状图（基于 count_positions.csv）
