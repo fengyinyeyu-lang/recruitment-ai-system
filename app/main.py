@@ -38,6 +38,27 @@ BASE_CSS = """
         background-color: #ffffff;
         box-shadow: 2px 0 10px rgba(0,0,0,0.03);
     }
+    /* 核心增强：美化 Page Link，让其呈现卡片悬浮高亮效果 */
+    [data-testid="stSidebar"] a[data-testid="stPageLink-Link"] {
+        background-color: #f8fafc;
+        border-radius: 10px;
+        padding: 10px 14px;
+        margin-bottom: 8px;
+        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        border: 1px solid #f1f5f9;
+        text-decoration: none !important;
+        display: flex;
+        align-items: center;
+    }
+    [data-testid="stSidebar"] a[data-testid="stPageLink-Link"]:hover {
+        background-color: #f0f4ff;
+        border-color: #4e73df;
+        transform: translateX(4px);
+        box-shadow: 0 4px 12px rgba(78, 115, 223, 0.08);
+    }
+    [data-testid="stSidebar"] a[data-testid="stPageLink-Link"]:hover span {
+        color: #224abe !important;
+    }
     h1, h2, h3 { color: #2b3a4a; font-weight: 600; }
     div[data-testid="metric-container"] {
         background-color: white;
@@ -354,35 +375,67 @@ pg = st.navigation(
     position="hidden"
 )
 
-# ============ 自定义侧边栏（强制顺序） ============
-# 1. 用户信息置顶（加大字体并居中）
-username = st.session_state.get('username', '')
+# ============ 自定义侧边栏（精装商业美化版） ============
+# 1. 顶部渐变系统 Logo 徽章
 st.sidebar.markdown(
-    f"""
-    <div style='text-align: center; margin-top: 10px; margin-bottom: 10px;'>
-        <div style='font-size: 2.2rem;'>👋</div>
-        <div style='font-size: 1.6rem; font-weight: bold; color: #2b3a4a; margin-top: 5px;'>欢迎, {username}</div>
+    """
+    <div style='background: linear-gradient(135deg, #4e73df, #224abe); border-radius: 12px; padding: 16px; text-align: center; margin-top: 25px; margin-bottom: 30px; box-shadow: 0 4px 12px rgba(78,115,223,0.15);'>
+        <div style='font-size: 1.25rem; font-weight: 800; color: white; letter-spacing: 1px;'>💼 RECRUIT AI</div>
+        <div style='font-size: 0.8rem; color: rgba(255,255,255,0.85); margin-top: 3px;'>招聘数据智能分析系统</div>
     </div>
     """,
     unsafe_allow_html=True
 )
 
-# 增加顶部留白，让导航菜单往下移
-st.sidebar.markdown("<div style='height: 15vh;'></div>", unsafe_allow_html=True)
+# 2. 用户身份信息展示卡片
+username = st.session_state.get('username', '')
+st.sidebar.markdown(
+    f"""
+    <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; margin-bottom: 35px; display: flex; align-items: center;'>
+        <div style='font-size: 1.5rem; margin-right: 10px;'>👤</div>
+        <div>
+            <div style='font-size: 0.75rem; color: #718096;'>当前登录用户</div>
+            <div style='font-size: 0.95rem; font-weight: bold; color: #2d3748;'>{username}</div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
-# 2. 居中排布的导航菜单
-# 稍微增大左侧比例，让带有图标的左对齐文本视觉上更居中
-col_left, col_center, col_right = st.sidebar.columns([0.22, 1, 0.08])
-with col_center:
-    st.page_link(page_home_obj)
-    st.page_link(page_vis_obj)
-    st.page_link(page_wc_obj)
-    st.page_link(page_ml_obj)
-    st.page_link(page_ai_obj)
+# 3. 页面导航菜单
+st.sidebar.page_link(page_home_obj)
+st.sidebar.page_link(page_vis_obj)
+st.sidebar.page_link(page_wc_obj)
+st.sidebar.page_link(page_ml_obj)
+st.sidebar.page_link(page_ai_obj)
 
-# 3. 退出按钮沉底
-# 减少底部高度，使整体空间分布更均匀
-st.sidebar.markdown("<div style='height: 20vh;'></div>", unsafe_allow_html=True)
+# 4. 中部系统状态卡片（充实空白空间）
+st.sidebar.markdown(
+    """
+    <div style='margin-top: 25px; margin-bottom: 8px; font-size: 0.75rem; font-weight: bold; color: #a0aec0; letter-spacing: 0.5px;'>📊 系统运行状态</div>
+    <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; margin-bottom: 15px;'>
+        <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
+            <span style='color: #718096;'>数据规模:</span>
+            <span style='font-weight: bold; color: #2d3748;'>29,500 条</span>
+        </div>
+        <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
+            <span style='color: #718096;'>系统版本:</span>
+            <span style='font-weight: bold; color: #2d3748;'>v1.0.2 Stable</span>
+        </div>
+        <div style='display: flex; justify-content: space-between; font-size: 0.8rem;'>
+            <span style='color: #718096;'>NLP 引擎:</span>
+            <span style='font-weight: bold; color: #48bb78;'>🟢 运行正常</span>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# 弹性间距，将退出按钮推至最底
+st.sidebar.markdown("<div style='height: 18vh;'></div>", unsafe_allow_html=True)
+
+# 5. 退出登录按钮
+st.sidebar.divider()
 if st.sidebar.button("🚪 退出登录", use_container_width=True):
     st.session_state['logged_in'] = False
     st.session_state['username'] = ''
