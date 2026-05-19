@@ -120,6 +120,7 @@ check_login()
 
 def page_home():
     """🏠 系统首页"""
+    st.session_state['last_active_page'] = 'home'
     st.title("💼 招聘数据智能分析系统")
     st.markdown("""
     ### 欢迎使用招聘数据智能分析系统！
@@ -154,6 +155,7 @@ def page_home():
 
 def page_visualization():
     """📊 数据可视化大屏"""
+    st.session_state['last_active_page'] = 'visualization'
     from src.data_pipeline.cleaner import load_processed_data, load_count_positions
     from src.visualization import visualization as viz
 
@@ -211,6 +213,7 @@ def page_visualization():
 
 def page_wordcloud():
     """☁️ 岗位词云与需求"""
+    st.session_state['last_active_page'] = 'wordcloud'
     from src.data_pipeline.cleaner import load_processed_data
     from src.visualization import visualization as viz
 
@@ -235,18 +238,20 @@ def page_wordcloud():
     st.markdown("### 🏙️ 各城市岗位需求量")
     if 'city' in df.columns:
         city_counts = df['city'].value_counts().head(15)
-        st.bar_chart(city_counts)
+        st.pyplot(viz.plot_horizontal_bar(city_counts, "城市招聘岗位需求量 Top 15", "岗位数量"))
 
     st.write("---")
     st.markdown("### 🏢 行业领域分布")
     if 'industryField' in df.columns:
         industries = df['industryField'].dropna().str.split(',').explode().str.strip()
         industry_counts = industries.value_counts().head(15)
-        st.bar_chart(industry_counts)
+        st.pyplot(viz.plot_horizontal_bar(industry_counts, "行业领域分布 Top 15", "岗位数量"))
+
 
 
 def page_ml():
     """🧠 机器学习聚类分析"""
+    st.session_state['last_active_page'] = 'ml'
     from src.data_pipeline.cleaner import load_processed_data
     from src.ml_engine.cluster import perform_kmeans_clustering
     from src.ml_engine.classifier import train_classification_model, predict_job_category
@@ -285,6 +290,7 @@ def page_ml():
                 plt.colorbar(scatter, label='聚类簇')
                 plt.tight_layout()
                 st.pyplot(fig)
+                plt.close(fig)
                 st.markdown("##### 📄 部分聚类结果预览：")
                 display_cols = ['positionName', 'city', 'salary', 'workYear', 'cluster']
                 available_cols = [c for c in display_cols if c in clustered_df.columns]
@@ -314,8 +320,13 @@ def page_ml():
 
 def page_ai_assistant():
     """🤖 智能求职助手"""
-    from src.llm_service.chat_api import chat_with_llm
+    from src.llm_service.chat_api import chat_with_llm, generate_followup_questions
     from src.llm_service.prompts import get_random_prompts
+
+    # 每次打开或切回“智能求职助手”页面时，随机重新生成初始推荐词
+    if st.session_state.get('last_active_page') != 'ai_assistant':
+        st.session_state['last_active_page'] = 'ai_assistant'
+        st.session_state['ai_quick_prompts'] = get_random_prompts(2)
 
     st.header("🤖 求职专属大模型 AI 顾问")
     st.markdown(
@@ -360,6 +371,10 @@ def page_ai_assistant():
                 response = chat_with_llm(prompt, st.session_state['chat_history'][:-1])
                 st.markdown(response)
                 st.session_state['chat_history'].append({"role": "assistant", "content": response})
+                
+                # 对话结束，调用大模型根据历史对话生成具有高度关联性的 2 个追问推荐
+                st.session_state['ai_quick_prompts'] = generate_followup_questions(st.session_state['chat_history'])
+                st.rerun()
 
 
 # ============ 路由注册（全部使用函数，避免中文文件名编码问题） ============

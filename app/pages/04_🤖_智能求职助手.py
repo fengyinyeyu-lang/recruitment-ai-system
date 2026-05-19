@@ -13,8 +13,13 @@ if PROJECT_ROOT not in sys.path:
 from app.components.auth import check_login
 check_login()
 
-from src.llm_service.chat_api import chat_with_llm
+from src.llm_service.chat_api import chat_with_llm, generate_followup_questions
 from src.llm_service.prompts import get_random_prompts
+
+# 每次打开或切回“智能求职助手”页面时，随机重新生成初始推荐词
+if st.session_state.get('last_active_page') != 'ai_assistant':
+    st.session_state['last_active_page'] = 'ai_assistant'
+    st.session_state['ai_quick_prompts'] = get_random_prompts(2)
 
 st.header("🤖 求职专属大模型 AI 顾问")
 st.markdown(
@@ -39,9 +44,10 @@ for msg in st.session_state['chat_history']:
 prompt = None
 
 st.markdown(
-    "<p style='color:#6c757d; font-size: 0.9em; margin-bottom: 2px;'>💡 猜你想问：</p>",
+    "<p style='color:#6c757d; font-size: 0.95em; margin-top: 6px; margin-bottom: 2px;'>💡 猜你想问：</p>",
     unsafe_allow_html=True
 )
+
 p1, p2 = st.session_state['ai_quick_prompts']
 
 # 使用动态列宽靠左对齐
@@ -68,3 +74,7 @@ if prompt:
             response = chat_with_llm(prompt, st.session_state['chat_history'][:-1])
             st.markdown(response)
             st.session_state['chat_history'].append({"role": "assistant", "content": response})
+            
+            # 对话结束，调用大模型根据历史对话生成具有高度关联性的 2 个追问推荐
+            st.session_state['ai_quick_prompts'] = generate_followup_questions(st.session_state['chat_history'])
+            st.rerun()

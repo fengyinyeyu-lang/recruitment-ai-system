@@ -60,3 +60,61 @@ def chat_with_llm(user_input, history=None, system_prompt=None):
     except Exception as e:
         logging.error(f"大模型请求异常: {e}")
         return f"⚠️ 请求异常: {str(e)}"
+
+
+def generate_followup_questions(history):
+    """
+    根据历史对话内容，调用通义千问大模型动态生成 2 个相关的求职/面试后续追问问题。
+    返回包含 2 个字符串的列表。如果失败，则回退到随机推荐词。
+    """
+    if not history:
+        from src.llm_service.prompts import get_random_prompts
+        return get_random_prompts(2)
+
+    api_key = os.getenv("DASHSCOPE_API_KEY")
+    if not api_key:
+        from src.llm_service.prompts import get_random_prompts
+        return get_random_prompts(2)
+
+    dashscope.api_key = api_key
+
+    # 构建生成追问的系统提示词
+    system_prompt = (
+        "你是一个求职建议助手的引导模块。请根据给出的历史对话上下文，"
+        "生成 2 个用户可能会想继续追问的、短小精炼的后续求职问题。"
+        "要求：\n"
+        "1. 只输出这两个问题本身，每个问题独占一行，禁止带有任何序号（如 1., 2.）或前缀；\n"
+        "2. 问题必须与上下文紧密相关，且属于求职、简历、面试或职业发展范畴；\n"
+        "3. 每个问题长度控制在 25 字以内，必须是完整的疑问句。"
+    )
+
+    # 提取最后 3 轮对话（即 6 条消息）以保持上下文长度适中
+    messages = [{'role': 'system', 'content': system_prompt}]
+    for msg in history[-6:]:
+        messages.append({'role': msg['role'], 'content': msg['content']})
+    messages.append({'role': 'user', 'content': "请根据上述对话历史，直接给出 2 个简短的后续追问问题（每行一个）："})
+
+    try:
+        response = dashscope.Generation.call(
+            model='qwen-turbo',
+            messages=messages,
+            result_format='message'
+        )
+        if response.status_code == 200:
+            content = response.output.choices[0].message.content.strip()
+            lines = [line.strip() for line in content.split('\n') if line.strip()]
+            # 清理可能残留的标记、数字前缀或标点
+            import re
+            cleaned_lines = []
+            for line in lines:
+                cleaned = re.sub(r'^(?:\d+[\.、\s]|\-\s|问题[一二三四五\d]+[:：]?\s*)', '', line).strip()
+                if cleaned:
+                    cleaned_lines.append(cleaned)
+            if len(cleaned_lines) >= 2:
+                return cleaned_lines[:2]
+    except Exception as e:
+        logging.error(f"动态追问生成异常: {e}")
+
+    from src.llm_service.prompts import get_random_prompts
+    return get_random_prompts(2)
+

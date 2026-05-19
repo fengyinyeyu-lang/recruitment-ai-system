@@ -17,6 +17,7 @@ check_login()
 from src.data_pipeline.cleaner import load_processed_data, load_count_positions
 from src.visualization import visualization as viz
 
+st.session_state['last_active_page'] = 'visualization'
 st.header("📈 招聘数据商业看板")
 st.markdown("<p style='color:#6c757d;'>基于拉勾网 29,500 条真实数据的多维深度分析报表</p>", unsafe_allow_html=True)
 st.write("---")

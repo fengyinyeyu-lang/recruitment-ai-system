@@ -22,6 +22,7 @@ from src.ml_engine.classifier import train_classification_model, predict_job_cat
 plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
 plt.rcParams['axes.unicode_minus'] = False
 
+st.session_state['last_active_page'] = 'ml'
 st.header("🧠 NLP 文本挖掘与岗位预测")
 
 df = load_processed_data()

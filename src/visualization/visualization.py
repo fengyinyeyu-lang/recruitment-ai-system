@@ -29,7 +29,7 @@ MACAROON_COLORS = [PALETTE_PRIMARY, PALETTE_SUCCESS, PALETTE_INFO, PALETTE_WARNI
 
 import streamlit as st
 
-@st.cache_data(show_spinner=False)
+# @st.cache_resource(show_spinner=False)  # 移除缓存以解决 Matplotlib 渲染线程卡死问题
 def plot_salary_distribution(df, salary_col='salary_avg'):
     """
     图表1：全行业薪资分布直方图（含核密度估计）
@@ -46,7 +46,7 @@ def plot_salary_distribution(df, salary_col='salary_avg'):
     return fig
 
 
-@st.cache_data(show_spinner=False)
+# @st.cache_resource(show_spinner=False)  # 移除缓存以解决 Matplotlib 渲染线程卡死问题
 def plot_city_salary(df, city_col='city', salary_col='salary_avg', top_n=10):
     """
     图表2：城市平均薪酬对比条形图
@@ -65,7 +65,7 @@ def plot_city_salary(df, city_col='city', salary_col='salary_avg', top_n=10):
     return fig
 
 
-@st.cache_data(show_spinner=False)
+# @st.cache_resource(show_spinner=False)  # 移除缓存以解决 Matplotlib 渲染线程卡死问题
 def plot_education_pie(df, edu_col='education'):
     """
     图表3：学历要求分布饼图
@@ -93,7 +93,7 @@ def plot_education_pie(df, edu_col='education'):
     return fig
 
 
-@st.cache_data(show_spinner=False)
+# @st.cache_resource(show_spinner=False)  # 移除缓存以解决 Matplotlib 渲染线程卡死问题
 def generate_wordcloud(df, text_col='positionDetail', max_words=150):
     """
     图表4：岗位描述核心技能词云
@@ -135,7 +135,7 @@ def generate_wordcloud(df, text_col='positionDetail', max_words=150):
     return fig
 
 
-@st.cache_data(show_spinner=False)
+# @st.cache_resource(show_spinner=False)  # 移除缓存以解决 Matplotlib 渲染线程卡死问题
 def plot_experience_salary(df, exp_col='workYear', salary_col='salary_avg'):
     """
     图表5：工作经验与薪资关联箱线图
@@ -165,7 +165,7 @@ def plot_experience_salary(df, exp_col='workYear', salary_col='salary_avg'):
     return fig
 
 
-@st.cache_data(show_spinner=False)
+# @st.cache_resource(show_spinner=False)  # 移除缓存以解决 Matplotlib 渲染线程卡死问题
 def plot_position_demand(count_df, top_n=20):
     """
     附加图表：岗位需求量 Top-N 柱状图（基于 count_positions.csv）
@@ -183,5 +183,37 @@ def plot_position_demand(count_df, top_n=20):
     plt.xticks(rotation=45, ha='right', color='#777')
     plt.yticks(color='#777')
     ax.grid(axis='y', linestyle='--', alpha=0.4, color='#ddd')
+    plt.tight_layout()
+    return fig
+
+
+# @st.cache_resource(show_spinner=False)  # 移除缓存以解决 Matplotlib 渲染线程卡死问题
+def plot_horizontal_bar(series, title, xlabel, color=PALETTE_PRIMARY):
+    """
+    绘制水平条形图，完美解决中文 x 轴标签文字旋转、重叠的反人类问题
+    """
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    # 按照数值大小进行升序排序，使条形图上从上到下由大到小排列
+    series_sorted = series.sort_values(ascending=True)
+    
+    bars = ax.barh(series_sorted.index, series_sorted.values, color=color, edgecolor='white', alpha=0.85)
+    
+    # 在水平条形图的右侧添加具体数值标签
+    for bar in bars:
+        width = bar.get_width()
+        ax.text(width + (width * 0.005) + 0.1, bar.get_y() + bar.get_height()/2,
+                f'{int(width):,}', 
+                ha='left', va='center', fontsize=9, color='#4a5568')
+                
+    ax.set_title(title, fontsize=14, fontweight='bold', color='#2b3a4a', pad=15)
+    ax.set_xlabel(xlabel, fontsize=11, color='#4a5568')
+    ax.tick_params(colors='#4a5568', labelsize=10)
+    ax.grid(axis='x', linestyle='--', alpha=0.4, color='#cbd5e1')
+    
+    # 移除上方和右方的无用轴线，提升界面清爽感
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    
     plt.tight_layout()
     return fig

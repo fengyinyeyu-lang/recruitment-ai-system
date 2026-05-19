@@ -16,6 +16,7 @@ check_login()
 from src.data_pipeline.cleaner import load_processed_data
 from src.visualization import visualization as viz
 
+st.session_state['last_active_page'] = 'wordcloud'
 st.header("☁️ 岗位词云与需求分析")
 st.markdown("<p style='color:#6c757d;'>基于 NLP 分词技术，提取岗位描述与职位名称中的高频技能热词</p>", unsafe_allow_html=True)
 st.write("---")
@@ -43,7 +44,7 @@ st.write("---")
 st.markdown("### 🏙️ 各城市岗位需求量")
 if 'city' in df.columns:
     city_counts = df['city'].value_counts().head(15)
-    st.bar_chart(city_counts)
+    st.pyplot(viz.plot_horizontal_bar(city_counts, "城市招聘岗位需求量 Top 15", "岗位数量"))
 else:
     st.info("城市字段缺失。")
 
@@ -54,4 +55,5 @@ if 'industryField' in df.columns:
     # 处理行业字段中的逗号分隔
     industries = df['industryField'].dropna().str.split(',').explode().str.strip()
     industry_counts = industries.value_counts().head(15)
-    st.bar_chart(industry_counts)
+    st.pyplot(viz.plot_horizontal_bar(industry_counts, "行业领域分布 Top 15", "岗位数量"))
+
