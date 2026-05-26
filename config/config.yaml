@@ -1,0 +1,49 @@
+# ============================================================
+# 招聘数据智能分析系统 - 项目配置文件
+# ============================================================
+
+# 数据路径配置
+data:
+  raw_dir: "data/raw"                          # 原始数据目录
+  processed_dir: "data/processed"              # 清洗后数据目录
+  text_features_dir: "data/text_features"      # NLP 文本特征缓存目录
+  raw_file: "拉勾网2023招聘数据.csv"            # 原始数据文件名
+  cleaned_file: "cleaned_jobs.csv"             # 清洗后数据文件名
+  count_file: "count_positions.csv"            # 岗位统计文件名
+
+# 模型配置
+model:
+  save_dir: "models"                           # 模型保存目录
+  nn_classifier_file: "nn_classifier.pt"       # 神经网络分类器模型文件名
+
+# 神经网络超参数
+nn_classifier:
+  sample_size: 3000          # 训练采样量
+  epochs: 30                 # 训练轮次
+  batch_size: 64             # 批大小
+  learning_rate: 0.001       # 学习率
+  dropout_rate: 0.3          # Dropout 比率
+  hidden_dims: [512, 256, 128]  # 隐藏层维度
+
+# KMeans 聚类超参数
+kmeans:
+  n_clusters: 5              # 默认聚类数
+  max_features: 1000         # TF-IDF 最大特征数
+  sample_size: 3000          # 采样数
+
+# Embedding API 配置
+embedding:
+  model: "text-embedding-v3"            # 阿里云 DashScope Embedding 模型
+  batch_size: 25                        # 每次 API 调用的批量大小
+  max_text_length: 2000                 # 文本截断长度
+
+# 大模型 API 配置
+llm:
+  model: "qwen-turbo"                   # 通义千问模型名
+  provider: "dashscope"                 # API 提供商
+
+# Streamlit 应用配置
+app:
+  page_title: "招聘数据智能分析系统"
+  page_icon: "💼"
+  layout: "wide"

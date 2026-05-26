@@ -104,13 +104,15 @@ def generate_wordcloud(df, text_col='positionDetail', max_words=150):
         text_data += df['positionName'].dropna().tolist()
     raw_text = ' '.join(text_data)
 
+    # HTML 实体及 nbsp 残留清洗
+    import re
+    raw_text = re.sub(r'&\w+;', '', raw_text)   # 清除所有 HTML 实体
+    raw_text = re.sub(r'\bnbsp\b', '', raw_text) # 清除残留 nbsp 字符串
+
     # jieba 分词
     words = jieba.cut(raw_text)
-    stopwords = {'的', '了', '在', '是', '有', '和', '不', '人', '都', '要',
-                 '也', '就', '到', '说', '会', '你', '我', '他', '她', '这',
-                 'br', '熟悉', '使用', '能力', '相关', '以上', '工作', '经验',
-                 '优先', '负责', '进行', '具备', '良好', '能够', '项目', '开发',
-                 '技术', '公司', '团队', '参与', '了解', '系统'}
+    from src.data_pipeline.nlp_processor import DEFAULT_STOPWORDS
+    stopwords = DEFAULT_STOPWORDS
     words_filtered = [w for w in words if len(w) > 1 and w not in stopwords]
     words_str = ' '.join(words_filtered)
 

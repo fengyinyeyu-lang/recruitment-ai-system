@@ -13,11 +13,22 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-# 初始化登录状态（必须在 set_page_config 之前判断）
+# 强制热重载本项目的自定义子模块，以防 Streamlit 运行期间无法感知 src 目录下代码文件的修改
+import importlib
+for mod_name in list(sys.modules.keys()):
+    if mod_name.startswith("src.") or mod_name == "src":
+        try:
+            importlib.reload(sys.modules[mod_name])
+        except Exception:
+            pass
+
+# 初始化 session_state（最顶部，必须在 set_page_config 之前判断）
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
 if 'username' not in st.session_state:
     st.session_state['username'] = ''
+if 'messages' not in st.session_state:
+    st.session_state['messages'] = []
 
 # 页面配置（必须是第一个 Streamlit 命令）
 st.set_page_config(
@@ -26,6 +37,33 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed" if not st.session_state['logged_in'] else "expanded",
 )
+
+# ============ 数据加载缓存 ============
+@st.cache_data
+def load_data():
+    from src.data_pipeline.cleaner import load_processed_data
+    return load_processed_data()
+
+@st.cache_data
+def load_count_df():
+    from src.data_pipeline.cleaner import load_count_positions
+    return load_count_positions()
+
+@st.cache_resource
+def load_models():
+    # 加载 kmeans.pkl 等模型文件（此处项目暂无直接存储的 kmeans.pkl，预留占位）
+    pass
+
+# ============ 登录检查逻辑 ============
+from app.components.auth import check_login
+if not st.session_state['logged_in']:
+    st.markdown("""
+    <style>
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stSidebarCollapsedControl"] { display: none; }
+    </style>
+    """, unsafe_allow_html=True)
+    check_login()  # 渲染登录页并 st.stop()
 
 # ============ 全局 CSS ============
 BASE_CSS = """
@@ -103,18 +141,7 @@ BASE_CSS = """
 """
 st.markdown(BASE_CSS, unsafe_allow_html=True)
 
-# 未登录时隐藏侧边栏
-if not st.session_state['logged_in']:
-    st.markdown("""
-    <style>
-        [data-testid="stSidebar"] { display: none; }
-        [data-testid="stSidebarCollapsedControl"] { display: none; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# ============ 登录验证 ============
-from app.components.auth import check_login
-check_login()
+# ============ 页面渲染 ============
 
 # ============ 页面视图函数定义 ============
 
@@ -134,8 +161,7 @@ def page_home():
 
     👈 请从左侧边栏选择功能模块开始体验。
     """)
-    from src.data_pipeline.cleaner import load_processed_data
-    df = load_processed_data()
+    df = load_data()
     if df is not None and not df.empty:
         st.write("---")
         st.subheader("📋 数据概览")
@@ -156,15 +182,14 @@ def page_home():
 def page_visualization():
     """📊 数据可视化大屏"""
     st.session_state['last_active_page'] = 'visualization'
-    from src.data_pipeline.cleaner import load_processed_data, load_count_positions
     from src.visualization import visualization as viz
 
     st.header("📈 招聘数据商业看板")
     st.markdown("<p style='color:#6c757d;'>基于拉勾网 29,500 条真实数据的多维深度分析报表</p>", unsafe_allow_html=True)
     st.write("---")
 
-    df = load_processed_data()
-    count_df = load_count_positions()
+    df = load_data()
+    count_df = load_count_df()
 
     if df is None or df.empty:
         st.error("⚠️ 未找到清洗后的数据！请先运行数据清洗脚本：`python -m src.data_pipeline.cleaner`")
@@ -214,14 +239,13 @@ def page_visualization():
 def page_wordcloud():
     """☁️ 岗位词云与需求"""
     st.session_state['last_active_page'] = 'wordcloud'
-    from src.data_pipeline.cleaner import load_processed_data
     from src.visualization import visualization as viz
 
     st.header("☁️ 岗位词云与需求分析")
     st.markdown("<p style='color:#6c757d;'>基于 NLP 分词技术，提取岗位描述与职位名称中的高频技能热词</p>", unsafe_allow_html=True)
     st.write("---")
 
-    df = load_processed_data()
+    df = load_data()
     if df is None or df.empty:
         st.error("⚠️ 未找到清洗后的数据！")
         st.stop()
@@ -252,20 +276,21 @@ def page_wordcloud():
 def page_ml():
     """🧠 机器学习聚类分析"""
     st.session_state['last_active_page'] = 'ml'
-    from src.data_pipeline.cleaner import load_processed_data
     from src.ml_engine.cluster import perform_kmeans_clustering
-    from src.ml_engine.classifier import train_classification_model, predict_job_category
+    from src.data_pipeline.nlp_processor import build_embedding_matrix
+    from src.ml_engine import classifier
+    from sklearn.cluster import KMeans
 
     plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
     plt.rcParams['axes.unicode_minus'] = False
 
     st.header("🧠 NLP 文本挖掘与岗位预测")
-    df = load_processed_data()
+    df = load_data()
     if df is None or df.empty:
         st.error("⚠️ 未找到清洗后的数据！")
         st.stop()
 
-    tab1, tab2 = st.tabs(["🎯 K-Means 岗位聚类分析", "🔮 岗位分类预测引擎"])
+    tab1, tab2 = st.tabs(["🎯 K-Means 岗位聚类分析", "🔮 神经网络分类预测"])
 
     with tab1:
         st.markdown("#### 基于 TF-IDF 与 K-Means 的招聘描述无监督聚类")
@@ -297,25 +322,161 @@ def page_ml():
                 st.dataframe(clustered_df[available_cols].head(15), use_container_width=True)
 
     with tab2:
-        st.markdown("#### 朴素贝叶斯岗位智能分类器")
-        st.caption("基于岗位描述文本特征，预测该岗位属于哪个关键字类别（如 JAVA、PYTHON、前端工程师等）。")
-        if st.button("🔄 训练分类预测模型", type="primary"):
-            with st.spinner("正在训练朴素贝叶斯文本分类器（约需 10 秒）..."):
-                acc, model, vectorizer, report = train_classification_model(df)
-                st.success(f"✅ 模型训练完毕！测试集准确率：**{acc:.2%}**")
-                st.session_state['clf_model'] = model
-                st.session_state['clf_vec'] = vectorizer
-                with st.expander("📊 查看详细分类报告"):
-                    st.code(report)
-        if 'clf_model' in st.session_state:
+        st.markdown("#### 🧠 Embedding + 神经网络岗位分类器")
+        st.caption(
+            "流程：大模型 Embedding 向量化 → KMeans 生成伪标签 → "
+            "PyTorch MLP 神经网络训练 → 自动识别岗位类型"
+        )
+
+        # 训练参数配置
+        col_p1, col_p2, col_p3 = st.columns(3)
+        with col_p1:
+            nn_k = st.number_input("聚类数 K（伪标签类别数）", min_value=3, max_value=15, value=5, step=1)
+        with col_p2:
+            nn_epochs = st.number_input("训练轮次 (Epochs)", min_value=10, max_value=100, value=30, step=5)
+        with col_p3:
+            nn_lr = st.select_slider("学习率", options=[0.0001, 0.0005, 0.001, 0.005, 0.01], value=0.001)
+
+        if st.button("🚀 训练神经网络分类模型", type="primary"):
+            progress_bar = st.progress(0, text="初始化中...")
+
+            # 训练进度回调
+            def on_progress(epoch, total, loss, acc):
+                pct = int(epoch / total * 100)
+                progress_bar.progress(pct, text=f"Epoch {epoch}/{total} — Loss: {loss:.4f} — 准确率: {acc:.2%}")
+
+            try:
+                # ---- Step 1: 获取 Embedding ----
+                # 定义回调闭包实时更新 UI
+                def on_api_progress(done, total):
+                    pct = int((done / total) * 100)
+                    progress_bar.progress(pct, text=f"Step 1/3: 正在从大模型获取 Embedding 向量 ({done}/{total})，这可能需要几分钟...")
+
+                progress_bar.progress(0, text="Step 1/3: 获取 Embedding 向量（首次需调用API，有缓存则秒级完成）...")
+                X = build_embedding_matrix(df, text_col='positionDetail', cache_name='classifier_emb_v3', progress_callback=on_api_progress)
+
+                # ---- Step 2: KMeans 生成伪标签 ----
+                progress_bar.progress(10, text="Step 2/3: KMeans 聚类生成伪标签...")
+                kmeans = KMeans(n_clusters=nn_k, random_state=42, n_init=10)
+                y = kmeans.fit_predict(X)
+                st.info(f"✅ KMeans 聚类完成，生成 {nn_k} 类伪标签，样本数: {len(y)}")
+
+                # 动态提取各簇特征词以供后续预测显示友好标签
+                from sklearn.feature_extraction.text import TfidfVectorizer
+                from src.data_pipeline.nlp_processor import DEFAULT_STOPWORDS, clean_text, tokenize, get_sampled_df
+                import numpy as np
+
+                cluster_names = {}
+                # 获取与 Embedding 完全一致的抽样数据集
+                sampled_df = get_sampled_df(df, len(y))
+                raw_texts = sampled_df['positionDetail'].fillna('').astype(str).tolist()
+                sample_texts = [tokenize(clean_text(t)) for t in raw_texts]
+                
+                # 1. 在全局样本上拟合 TF-IDF（保留有绝对区分度的词，过滤低于 5 次的低频错词/冷门词）
+                vec = TfidfVectorizer(min_df=5, stop_words=list(DEFAULT_STOPWORDS))
+                tfidf_matrix = vec.fit_transform(sample_texts) 
+                feature_names = vec.get_feature_names_out()
+                
+                # 2. 计算每个簇的独有特征（基于相对熵 KL 散度得分），自动惩罚高频通用词
+                for c_idx in range(nn_k):
+                    c_indices = [i for i, label in enumerate(y) if label == c_idx]
+                    other_indices = [i for i, label in enumerate(y) if label != c_idx]
+                    
+                    if c_indices and other_indices:
+                        c_mean = np.asarray(tfidf_matrix[c_indices].mean(axis=0)).flatten()
+                        other_mean = np.asarray(tfidf_matrix[other_indices].mean(axis=0)).flatten()
+                        
+                        # 终极平衡公式（基于相对熵）：底层已由 min_df=5 拦截低频词，此处使用均值一次方防止全量高频词霸榜
+                        # 在确保基本频数的同时，完美释放其跨类别时的独占特异性
+                        eps = 0.01
+                        rel_spec = c_mean * np.log((c_mean + eps) / (other_mean + eps))
+                        top_indices = rel_spec.argsort()[-5:][::-1]
+                        top_words = ", ".join([feature_names[i] for i in top_indices])
+                        cluster_names[c_idx] = top_words
+                    elif c_indices:
+                        c_mean = np.asarray(tfidf_matrix[c_indices].mean(axis=0)).flatten()
+                        top_indices = c_mean.argsort()[-5:][::-1]
+                        top_words = ", ".join([feature_names[i] for i in top_indices])
+                        cluster_names[c_idx] = top_words
+                    else:
+                        cluster_names[c_idx] = "未知特征"
+                st.session_state['cluster_names'] = cluster_names
+
+                # ---- Step 3: 训练 MLP 神经网络 ----
+                progress_bar.progress(15, text="Step 3/3: 训练 PyTorch MLP 神经网络...")
+                acc, history, report = classifier.train(
+                    X, y, epochs=nn_epochs, learning_rate=nn_lr,
+                    progress_callback=on_progress
+                )
+
+                progress_bar.progress(100, text="训练完成！")
+                st.session_state['nn_acc'] = acc
+                st.session_state['nn_history'] = history
+                st.session_state['nn_report'] = report
+                st.session_state['nn_trained'] = True
+
+            except Exception as e:
+                st.error(f"⚠️ 训练失败：{str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+                
+        # 独立于训练按钮之外渲染训练结果图表，确保预测刷新时不会消失
+        if st.session_state.get('nn_trained'):
+            acc = st.session_state.get('nn_acc', 0)
+            history = st.session_state.get('nn_history', {})
+            report = st.session_state.get('nn_report', '')
+            
+            st.success(f"✅ 神经网络训练完毕！最佳测试集准确率：**{acc:.2%}**")
+
+            # 绘制训练过程曲线
+            st.markdown("##### 📈 训练过程可视化")
+            fig_train, (ax_loss, ax_acc) = plt.subplots(1, 2, figsize=(14, 5))
+
+            ax_loss.plot(history.get('train_loss', []), color='#4e73df', linewidth=2)
+            ax_loss.set_xlabel('Epoch', fontsize=11)
+            ax_loss.set_ylabel('Loss', fontsize=11)
+            ax_loss.set_title('训练损失曲线', fontsize=13, fontweight='bold')
+            ax_loss.grid(axis='y', linestyle='--', alpha=0.4)
+
+            ax_acc.plot(history.get('val_acc', []), color='#1cc88a', linewidth=2)
+            ax_acc.set_xlabel('Epoch', fontsize=11)
+            ax_acc.set_ylabel('Accuracy', fontsize=11)
+            ax_acc.set_title('验证准确率曲线', fontsize=13, fontweight='bold')
+            ax_acc.grid(axis='y', linestyle='--', alpha=0.4)
+            ax_acc.set_ylim(0, 1)
+
+            plt.tight_layout()
+            st.pyplot(fig_train)
+            plt.close(fig_train)
+
+            with st.expander("📊 查看详细分类报告"):
+                st.code(report)
+
+        # 预测区域：模型文件存在即可使用
+        model_path = os.path.join(PROJECT_ROOT, 'models', 'nn_classifier.pt')
+        if st.session_state.get('nn_trained') or os.path.exists(model_path):
             st.write("---")
+            st.markdown("##### 🔮 岗位描述实时预测")
+            st.caption("输入一段岗位描述，系统调用 Embedding API 获取向量后，使用训练好的神经网络预测其所属聚类类别。")
             test_desc = st.text_area(
                 "请在这里粘贴一段真实的岗位描述：",
                 "熟练掌握深度学习框架（PyTorch/TensorFlow），有NLP项目落地经验，能阅读最新顶会论文并复现优先。"
             )
             if st.button("🔍 立即预测", type="primary"):
-                pred = predict_job_category(test_desc, st.session_state['clf_model'], st.session_state['clf_vec'])
-                st.success(f"✨ **预测结果：** 系统判断该岗位最可能属于 **【{pred}】** 类别！")
+                with st.spinner("正在调用 Embedding API 并进行神经网络推理..."):
+                    try:
+                        from src.data_pipeline.nlp_processor import _call_embedding_api, clean_html_tags
+                        cleaned = clean_html_tags(test_desc)
+                        if len(cleaned) > 2000:
+                            cleaned = cleaned[:2000]
+                        emb = _call_embedding_api([cleaned])
+                        pred_labels = classifier.predict(emb)
+                        p_label = pred_labels[0]
+                        c_name = st.session_state.get('cluster_names', {}).get(p_label, '')
+                        suffix = f" (核心特征：{c_name})" if c_name else ""
+                        st.success(f"✨ **预测结果：** 神经网络判定该岗位属于 **聚类簇 {p_label}**{suffix}")
+                    except Exception as e:
+                        st.error(f"⚠️ 预测失败：{str(e)}")
 
 
 def page_ai_assistant():
@@ -335,12 +496,10 @@ def page_ai_assistant():
     )
     st.write("---")
 
-    if 'chat_history' not in st.session_state:
-        st.session_state['chat_history'] = []
     if 'ai_quick_prompts' not in st.session_state:
         st.session_state['ai_quick_prompts'] = get_random_prompts(2)
 
-    for msg in st.session_state['chat_history']:
+    for msg in st.session_state['messages']:
         avatar = "🧑‍💻" if msg["role"] == "user" else "🤖"
         with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
@@ -353,27 +512,27 @@ def page_ai_assistant():
     p1, p2 = st.session_state['ai_quick_prompts']
     c1, c2, _ = st.columns([len(p1) + 5, len(p2) + 5, 40])
     with c1:
-        if st.button(f"💬 {p1}", type="secondary", use_container_width=False):
+        if st.button(f"💬 {p1}", type="secondary", use_container_width=False, key="quick_prompt_1"):
             prompt = p1
     with c2:
-        if st.button(f"💬 {p2}", type="secondary", use_container_width=False):
+        if st.button(f"💬 {p2}", type="secondary", use_container_width=False, key="quick_prompt_2"):
             prompt = p2
 
     if chat_val := st.chat_input("向AI智能顾问提问您的职场疑惑..."):
         prompt = chat_val
 
     if prompt:
-        st.session_state['chat_history'].append({"role": "user", "content": prompt})
+        st.session_state['messages'].append({"role": "user", "content": prompt})
         with st.chat_message("user", avatar="🧑‍💻"):
             st.markdown(prompt)
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("AI 顾问正在思考中..."):
-                response = chat_with_llm(prompt, st.session_state['chat_history'][:-1])
+                response = chat_with_llm(prompt, st.session_state['messages'][:-1])
                 st.markdown(response)
-                st.session_state['chat_history'].append({"role": "assistant", "content": response})
+                st.session_state['messages'].append({"role": "assistant", "content": response})
                 
                 # 对话结束，调用大模型根据历史对话生成具有高度关联性的 2 个追问推荐
-                st.session_state['ai_quick_prompts'] = generate_followup_questions(st.session_state['chat_history'])
+                st.session_state['ai_quick_prompts'] = generate_followup_questions(st.session_state['messages'])
                 st.rerun()
 
 

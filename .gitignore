@@ -25,3 +25,7 @@ Thumbs.db
 
 # Streamlit local config
 .streamlit/
+
+# Local data and models
+data/text_features/
+models/

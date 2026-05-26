@@ -18,21 +18,8 @@ def preprocess_texts(df, text_col='positionDetail'):
     对岗位描述列进行文本预处理（清洗+分词）
     返回分词后的文本 Series
     """
-    import re
-    stopwords = {'的', '了', '在', '是', '有', '和', '不', '人', '都', '要',
-                 '也', '就', '到', '说', '会', '你', '我', '他', '她', '这',
-                 'br', '熟悉', '使用', '能力', '相关', '以上', '工作', '经验',
-                 '优先', '负责', '进行', '具备', '良好', '能够', '项目', '开发',
-                 '技术', '公司', '团队', '参与', '了解', '系统', '岗位', '职位'}
-
-    def clean_and_cut(text):
-        if pd.isna(text):
-            return ""
-        text = re.sub(r'<[^>]+>', ' ', str(text))
-        words = jieba.cut(text)
-        return " ".join([w for w in words if len(w) > 1 and w not in stopwords])
-
-    return df[text_col].apply(clean_and_cut)
+    from src.data_pipeline.nlp_processor import preprocess_text_column
+    return preprocess_text_column(df, text_col)
 
 
 import streamlit as st
@@ -57,7 +44,7 @@ def perform_kmeans_clustering(df, n_clusters=5, max_features=1000, sample_size=3
     else:
         sample_df = df.copy()
 
-    logging.info(f"开始聚类分析，采样 {len(sample_df)} 条数据...")
+    logging.info(f"开始聚类分析，采样 {len(sample_df)} 条数据 (已应用最新停用词)...")
 
     # 文本预处理
     processed_texts = preprocess_texts(sample_df)
