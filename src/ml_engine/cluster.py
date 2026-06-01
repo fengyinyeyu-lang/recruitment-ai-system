@@ -57,13 +57,14 @@ def perform_kmeans_clustering(df, n_clusters=5, max_features=1000, sample_size=3
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     sample_df['cluster'] = kmeans.fit_predict(X)
 
-    # 提取每个聚类的核心关键词
+    # 提取每个聚类的核心关键词（过滤非技能噪声词）
     order_centroids = kmeans.cluster_centers_.argsort()[:, ::-1]
     terms = vectorizer.get_feature_names_out()
     cluster_keywords = {}
     for i in range(n_clusters):
-        top_words = [terms[ind] for ind in order_centroids[i, :8]]
-        cluster_keywords[i] = ", ".join(top_words)
+        top_words = [terms[ind] for ind in order_centroids[i, :10]]
+        from src.data_pipeline.nlp_processor import filter_words
+        cluster_keywords[i] = filter_words(top_words)
 
     # PCA 降维用于可视化
     pca = PCA(n_components=2, random_state=42)

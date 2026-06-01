@@ -184,9 +184,149 @@ def page_visualization():
     st.session_state['last_active_page'] = 'visualization'
     from src.visualization import visualization as viz
 
-    st.header("📈 招聘数据商业看板")
-    st.markdown("<p style='color:#6c757d;'>基于拉勾网 29,500 条真实数据的多维深度分析报表</p>", unsafe_allow_html=True)
-    st.write("---")
+    # ========== 页面专属样式 ==========
+    st.markdown("""
+    <style>
+        /* 渐变 Banner 标题栏 */
+        .dashboard-banner {
+            background: linear-gradient(135deg, #4e73df 0%, #224abe 50%, #1a3a9e 100%);
+            border-radius: 16px;
+            padding: 28px 32px;
+            margin-bottom: 24px;
+            box-shadow: 0 8px 24px rgba(78, 115, 223, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+        .dashboard-banner::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(255,255,255,0.08) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        .dashboard-banner h1 {
+            color: white !important;
+            margin: 0;
+            font-size: 1.75rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+        }
+        .dashboard-banner p {
+            color: rgba(255,255,255,0.8) !important;
+            margin: 8px 0 0 0;
+            font-size: 0.95rem;
+        }
+
+        /* 指标卡片 */
+        .metric-card {
+            background: white;
+            border-radius: 14px;
+            padding: 20px 22px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border: 1px solid #f0f0f5;
+            position: relative;
+            overflow: hidden;
+        }
+        .metric-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+        }
+        .metric-card .metric-icon {
+            font-size: 1.6rem;
+            margin-bottom: 6px;
+        }
+        .metric-card .metric-label {
+            font-size: 0.8rem;
+            color: #858796;
+            font-weight: 500;
+            margin-bottom: 4px;
+        }
+        .metric-card .metric-value {
+            font-size: 1.65rem;
+            font-weight: 700;
+            color: #2b3a4a;
+            line-height: 1.2;
+        }
+        .metric-card .metric-delta {
+            font-size: 0.75rem;
+            color: #1cc88a;
+            margin-top: 4px;
+            font-weight: 500;
+        }
+        .metric-card .metric-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 4px;
+        }
+        .bar-blue   { background: linear-gradient(90deg, #4e73df, #36b9cc); }
+        .bar-green  { background: linear-gradient(90deg, #1cc88a, #36b9cc); }
+        .bar-orange { background: linear-gradient(90deg, #f6c23e, #e74a3b); }
+        .bar-purple { background: linear-gradient(90deg, #764ba2, #4e73df); }
+
+        /* 图表展示容器 */
+        .chart-container {
+            background: white;
+            border-radius: 14px;
+            padding: 28px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+            border: 1px solid #f0f0f5;
+            margin-top: 8px;
+        }
+        .chart-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: #2b3a4a;
+            margin-bottom: 4px;
+        }
+        .chart-subtitle {
+            font-size: 0.85rem;
+            color: #858796;
+            margin-bottom: 16px;
+        }
+
+        /* 选项卡导航增强 */
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label {
+            background-color: #f8f9fc;
+            border: 1.5px solid #e8ecf1;
+            border-radius: 12px;
+            padding: 10px 20px;
+            margin-right: 10px;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            font-weight: 500;
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label:hover {
+            background-color: #eef2ff;
+            border-color: #4e73df;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(78, 115, 223, 0.12);
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) {
+            background: linear-gradient(135deg, #4e73df, #224abe);
+            border-color: #4e73df;
+            color: white;
+            box-shadow: 0 4px 15px rgba(78, 115, 223, 0.3);
+            transform: translateY(-2px);
+        }
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-baseweb="radio"]:has(input:checked) div {
+            color: white !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ========== 渐变 Banner 标题 ==========
+    st.markdown("""
+    <div class='dashboard-banner'>
+        <h1>📈 招聘数据商业看板</h1>
+        <p>基于拉勾网 29,500 条真实数据的多维深度分析报表</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     df = load_data()
     count_df = load_count_df()
@@ -195,45 +335,118 @@ def page_visualization():
         st.error("⚠️ 未找到清洗后的数据！请先运行数据清洗脚本：`python -m src.data_pipeline.cleaner`")
         st.stop()
 
-    # 核心指标卡片
+    # ========== 核心指标卡片（自定义 HTML） ==========
+    # 预计算指标值
+    total_positions = f"{len(df):,}"
+    avg_salary = f"{df['salary_avg'].mean():.1f} K" if 'salary_avg' in df.columns else "--"
+    company_count = f"{df['companyFullName'].nunique():,}" if 'companyFullName' in df.columns else "--"
+    keyword_count = f"{df['keyword'].nunique()}" if 'keyword' in df.columns else "--"
+
     c1, c2, c3, c4 = st.columns(4)
     with c1:
-        st.metric(label="📥 采集总岗位数", value=f"{len(df):,}", delta="实时更新")
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div class='metric-bar bar-blue'></div>
+            <div class='metric-icon'>📥</div>
+            <div class='metric-label'>采集总岗位数</div>
+            <div class='metric-value'>{total_positions}</div>
+            <div class='metric-delta'>▲ 实时更新</div>
+        </div>
+        """, unsafe_allow_html=True)
     with c2:
-        if 'salary_avg' in df.columns:
-            st.metric(label="💰 行业平均薪资", value=f"{df['salary_avg'].mean():.1f} K")
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div class='metric-bar bar-green'></div>
+            <div class='metric-icon'>💰</div>
+            <div class='metric-label'>行业平均薪资</div>
+            <div class='metric-value'>{avg_salary}</div>
+            <div class='metric-delta'>月薪中位数</div>
+        </div>
+        """, unsafe_allow_html=True)
     with c3:
-        if 'companyFullName' in df.columns:
-            st.metric(label="🏢 覆盖企业数量", value=f"{df['companyFullName'].nunique():,}")
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div class='metric-bar bar-orange'></div>
+            <div class='metric-icon'>🏢</div>
+            <div class='metric-label'>覆盖企业数量</div>
+            <div class='metric-value'>{company_count}</div>
+            <div class='metric-delta'>多行业覆盖</div>
+        </div>
+        """, unsafe_allow_html=True)
     with c4:
-        if 'keyword' in df.columns:
-            st.metric(label="🔥 热门岗位类别", value=f"{df['keyword'].nunique()}")
+        st.markdown(f"""
+        <div class='metric-card'>
+            <div class='metric-bar bar-purple'></div>
+            <div class='metric-icon'>🔥</div>
+            <div class='metric-label'>热门岗位类别</div>
+            <div class='metric-value'>{keyword_count}</div>
+            <div class='metric-delta'>技术方向</div>
+        </div>
+        """, unsafe_allow_html=True)
 
-    st.write("<br>", unsafe_allow_html=True)
+    st.write("")
 
-    # 图表区域（2 列）
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.markdown("### 💸 全行业薪资分布")
+    # ========== 图表路由导航 ==========
+    CHART_OPTIONS = {
+        "💸 薪资分布": "salary",
+        "🏙️ 城市薪酬": "city",
+        "🎓 学历门槛": "education",
+        "🔥 岗位需求": "demand",
+        "📈 经验薪资": "experience",
+    }
+
+    selected = st.radio(
+        "选择图表",
+        options=list(CHART_OPTIONS.keys()),
+        horizontal=True,
+        label_visibility="collapsed",
+    )
+    chart_key = CHART_OPTIONS[selected]
+
+    # ========== 图表元信息映射 ==========
+    CHART_META = {
+        "salary":     {"title": "💸 全行业薪资分布",   "desc": "展示所有岗位的平均月薪分布直方图与核密度估计曲线"},
+        "city":       {"title": "🏙️ 一二线城市薪酬对比", "desc": "对比各城市平均薪资水平，揭示地域薪酬差异"},
+        "education":  {"title": "🎓 学历准入门槛",     "desc": "分析不同学历要求的岗位占比，洞察学历门槛分布"},
+        "demand":     {"title": "🔥 热门岗位需求 Top 20", "desc": "统计各岗位关键字的需求数量，展示最热门的技术方向"},
+        "experience": {"title": "📈 工作经验与薪资关联",  "desc": "展示不同工作年限对于薪酬待遇的拉动作用及分布区间"},
+    }
+    meta = CHART_META[chart_key]
+
+    # ========== 图表展示区（白色卡片容器） ==========
+    st.markdown(f"""
+    <div class='chart-container'>
+        <div class='chart-title'>{meta['title']}</div>
+        <div class='chart-subtitle'>{meta['desc']}</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # 渲染图表（紧跟卡片容器下方）
+    if chart_key == "salary":
         if 'salary_avg' in df.columns:
             st.pyplot(viz.plot_salary_distribution(df))
-        st.markdown("### 🎓 学历准入门槛")
-        if 'education' in df.columns:
-            st.pyplot(viz.plot_education_pie(df))
-    with col_right:
-        st.markdown("### 🏙️ 一二线城市薪酬对比")
+        else:
+            st.warning("薪资数据未解析，请检查数据清洗流程。")
+    elif chart_key == "city":
         if 'salary_avg' in df.columns and 'city' in df.columns:
             st.pyplot(viz.plot_city_salary(df))
-        st.markdown("### 🔥 热门岗位需求 Top 20")
+        else:
+            st.warning("城市或薪资数据缺失。")
+    elif chart_key == "education":
+        if 'education' in df.columns:
+            st.pyplot(viz.plot_education_pie(df))
+        else:
+            st.warning("学历数据未解析。")
+    elif chart_key == "demand":
         if count_df is not None and not count_df.empty:
             st.pyplot(viz.plot_position_demand(count_df, top_n=20))
-
-    # 图表5：跨列展示
-    st.write("---")
-    st.markdown("### 📈 职场成长路径：工作经验与薪资关联分析")
-    st.caption("展示不同工作年限对于薪酬待遇的拉动作用及分布区间。")
-    if 'workYear' in df.columns and 'salary_avg' in df.columns:
-        st.pyplot(viz.plot_experience_salary(df))
+        else:
+            st.info("岗位统计数据暂未生成。")
+    elif chart_key == "experience":
+        if 'workYear' in df.columns and 'salary_avg' in df.columns:
+            st.pyplot(viz.plot_experience_salary(df))
+        else:
+            st.warning("工作经验或薪资数据缺失。")
 
 
 def page_wordcloud():
@@ -374,29 +587,30 @@ def page_ml():
                 
                 # 1. 在全局样本上拟合 TF-IDF（保留有绝对区分度的词，过滤低于 5 次的低频错词/冷门词）
                 vec = TfidfVectorizer(min_df=5, stop_words=list(DEFAULT_STOPWORDS))
-                tfidf_matrix = vec.fit_transform(sample_texts) 
+                tfidf_matrix = vec.fit_transform(sample_texts)
                 feature_names = vec.get_feature_names_out()
-                
+
                 # 2. 计算每个簇的独有特征（基于相对熵 KL 散度得分），自动惩罚高频通用词
+                from src.data_pipeline.nlp_processor import filter_words
                 for c_idx in range(nn_k):
                     c_indices = [i for i, label in enumerate(y) if label == c_idx]
                     other_indices = [i for i, label in enumerate(y) if label != c_idx]
-                    
+
                     if c_indices and other_indices:
                         c_mean = np.asarray(tfidf_matrix[c_indices].mean(axis=0)).flatten()
                         other_mean = np.asarray(tfidf_matrix[other_indices].mean(axis=0)).flatten()
-                        
+
                         # 终极平衡公式（基于相对熵）：底层已由 min_df=5 拦截低频词，此处使用均值一次方防止全量高频词霸榜
                         # 在确保基本频数的同时，完美释放其跨类别时的独占特异性
                         eps = 0.01
                         rel_spec = c_mean * np.log((c_mean + eps) / (other_mean + eps))
                         top_indices = rel_spec.argsort()[-5:][::-1]
-                        top_words = ", ".join([feature_names[i] for i in top_indices])
+                        top_words = filter_words([feature_names[i] for i in top_indices])
                         cluster_names[c_idx] = top_words
                     elif c_indices:
                         c_mean = np.asarray(tfidf_matrix[c_indices].mean(axis=0)).flatten()
                         top_indices = c_mean.argsort()[-5:][::-1]
-                        top_words = ", ".join([feature_names[i] for i in top_indices])
+                        top_words = filter_words([feature_names[i] for i in top_indices])
                         cluster_names[c_idx] = top_words
                     else:
                         cluster_names[c_idx] = "未知特征"
@@ -496,9 +710,6 @@ def page_ai_assistant():
     )
     st.write("---")
 
-    if 'ai_quick_prompts' not in st.session_state:
-        st.session_state['ai_quick_prompts'] = get_random_prompts(2)
-
     for msg in st.session_state['messages']:
         avatar = "🧑‍💻" if msg["role"] == "user" else "🤖"
         with st.chat_message(msg["role"], avatar=avatar):
@@ -553,7 +764,7 @@ pg = st.navigation(
 # 1. 顶部渐变系统 Logo 徽章
 st.sidebar.markdown(
     """
-    <div style='background: linear-gradient(135deg, #4e73df, #224abe); border-radius: 12px; padding: 16px; text-align: center; margin-top: 25px; margin-bottom: 30px; box-shadow: 0 4px 12px rgba(78,115,223,0.15);'>
+    <div style='background: linear-gradient(135deg, #4e73df, #224abe); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 30px; box-shadow: 0 4px 12px rgba(78,115,223,0.15);'>
         <div style='font-size: 1.25rem; font-weight: 800; color: white; letter-spacing: 1px;'>💼 RECRUIT AI</div>
         <div style='font-size: 0.8rem; color: rgba(255,255,255,0.85); margin-top: 3px;'>招聘数据智能分析系统</div>
     </div>
@@ -565,7 +776,7 @@ st.sidebar.markdown(
 username = st.session_state.get('username', '')
 st.sidebar.markdown(
     f"""
-    <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; margin-bottom: 35px; display: flex; align-items: center;'>
+    <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; display: flex; align-items: center;'>
         <div style='font-size: 1.5rem; margin-right: 10px;'>👤</div>
         <div>
             <div style='font-size: 0.75rem; color: #718096;'>当前登录用户</div>

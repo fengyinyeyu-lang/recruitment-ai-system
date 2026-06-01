@@ -111,9 +111,10 @@ def generate_wordcloud(df, text_col='positionDetail', max_words=150):
 
     # jieba 分词
     words = jieba.cut(raw_text)
-    from src.data_pipeline.nlp_processor import DEFAULT_STOPWORDS
-    stopwords = DEFAULT_STOPWORDS
-    words_filtered = [w for w in words if len(w) > 1 and w not in stopwords]
+    from src.data_pipeline.nlp_processor import DEFAULT_STOPWORDS, NOISE_WORDS
+    # 合并停用词 + 噪声词，彻底过滤非技能词
+    all_stopwords = DEFAULT_STOPWORDS | NOISE_WORDS
+    words_filtered = [w for w in words if len(w) > 1 and w not in all_stopwords]
     words_str = ' '.join(words_filtered)
 
     font_path = "C:/Windows/Fonts/simhei.ttf" if os.path.exists("C:/Windows/Fonts/simhei.ttf") else None
