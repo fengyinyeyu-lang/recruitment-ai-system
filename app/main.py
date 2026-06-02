@@ -546,6 +546,20 @@ def page_ml():
         st.error("⚠️ 未找到清洗后的数据！")
         st.stop()
 
+    # 高效重构：在机器学习分析前进行“数据领域硬截流”
+    # 强制将大杂烩数据集收束到纯 IT 技术领域，从根本上杜绝农业/传统制造业/其他行业的无关噪声
+    if 'positionName' in df.columns:
+        it_keywords = [
+            '开发', '前端', '后端', '数据', '测试', '运维', '算法', '架构', 
+            'AI', '游戏', '客户端', '全栈', '硬件', '嵌入式', '工程师', 
+            '安全', '产品', '项目', 'UI', '设计', '程序员', '人工智能'
+        ]
+        it_mask = df['positionName'].str.contains('|'.join(it_keywords), case=False, na=False)
+        # 只要 IT 数据足够多，就进行拦截剥离
+        if it_mask.sum() > 100:
+            df = df[it_mask].copy()
+            st.caption(f"🛡️ **领域收束引擎已启动**：已拦截非 IT 行业数据，仅保留 {len(df)} 条核心技术岗位参与训练。")
+
     tab1, tab2 = st.tabs(["🎯 K-Means 岗位聚类分析", "🔮 神经网络分类预测"])
 
     with tab1:
