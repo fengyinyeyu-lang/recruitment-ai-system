@@ -162,11 +162,14 @@ st.markdown(BASE_CSS, unsafe_allow_html=True)
 def page_home():
     """🏠 系统首页"""
     st.session_state['last_active_page'] = 'home'
+    df = load_data()
+    total_jobs = len(df) if (df is not None and not df.empty) else 0
+
     st.title("💼 招聘数据智能分析系统")
-    st.markdown("""
+    st.markdown(f"""
     ### 欢迎使用招聘数据智能分析系统！
 
-    本系统基于拉勾网 **430,000+** 条真实招聘数据（已清洗），为您提供深入的招聘市场洞察：
+    本系统基于主流招聘平台 **{total_jobs:,}** 条真实招聘数据（已清洗），为您提供深入的招聘市场洞察：
 
     - **📊 数据可视化大屏**：薪资分布、城市薪酬对比、学历门槛、经验薪资关联等 5 大核心图表
     - **☁️ 岗位词云与需求**：通过 NLP 技术提取技能热词，洞察市场风向
@@ -178,13 +181,12 @@ def page_home():
 
     👈 请从左侧边栏选择功能模块开始体验。
     """)
-    df = load_data()
     if df is not None and not df.empty:
         st.write("---")
         st.subheader("📋 数据概览")
         c1, c2, c3, c4 = st.columns(4)
         with c1:
-            st.metric("📥 总岗位数", f"{len(df):,}")
+            st.metric("📥 总岗位数", f"{total_jobs:,}")
         with c2:
             if 'salary_avg' in df.columns:
                 st.metric("💰 平均薪资", f"{df['salary_avg'].mean():.1f} K")
@@ -337,15 +339,16 @@ def page_visualization():
     </style>
     """, unsafe_allow_html=True)
 
+    df = load_data()
+    total_jobs = len(df) if (df is not None and not df.empty) else 0
+
     # ========== 渐变 Banner 标题 ==========
-    st.markdown("""
+    st.markdown(f"""
     <div class='dashboard-banner'>
         <h1>📈 招聘数据商业看板</h1>
-        <p>基于拉勾网 430,000+ 条真实数据的多维深度分析报表</p>
+        <p>基于主流招聘平台 {total_jobs:,} 条真实数据的多维深度分析报表</p>
     </div>
     """, unsafe_allow_html=True)
-
-    df = load_data()
     count_df = load_count_df()
 
     if df is None or df.empty:
@@ -439,31 +442,53 @@ def page_visualization():
     """, unsafe_allow_html=True)
 
     # 渲染图表（紧跟卡片容器下方）
-    if chart_key == "salary":
-        if 'salary_avg' in df.columns:
-            st.pyplot(viz.plot_salary_distribution(df))
+    @st.cache_data(show_spinner=False)
+    def get_cached_chart_image(chart_type, _data_df, _count_data=None):
+        import io
+        import matplotlib.pyplot as plt
+        if chart_type == "salary":
+            fig = viz.plot_salary_distribution(_data_df)
+        elif chart_type == "city":
+            fig = viz.plot_city_salary(_data_df)
+        elif chart_type == "education":
+            fig = viz.plot_education_pie(_data_df)
+        elif chart_type == "demand":
+            fig = viz.plot_position_demand(_count_data, top_n=20)
+        elif chart_type == "experience":
+            fig = viz.plot_experience_salary(_data_df)
         else:
-            st.warning("薪资数据未解析，请检查数据清洗流程。")
-    elif chart_key == "city":
-        if 'salary_avg' in df.columns and 'city' in df.columns:
-            st.pyplot(viz.plot_city_salary(df))
-        else:
-            st.warning("城市或薪资数据缺失。")
-    elif chart_key == "education":
-        if 'education' in df.columns:
-            st.pyplot(viz.plot_education_pie(df))
-        else:
-            st.warning("学历数据未解析。")
-    elif chart_key == "demand":
-        if count_df is not None and not count_df.empty:
-            st.pyplot(viz.plot_position_demand(count_df, top_n=20))
-        else:
-            st.info("岗位统计数据暂未生成。")
-    elif chart_key == "experience":
-        if 'workYear' in df.columns and 'salary_avg' in df.columns:
-            st.pyplot(viz.plot_experience_salary(df))
-        else:
-            st.warning("工作经验或薪资数据缺失。")
+            return None
+        buf = io.BytesIO()
+        fig.savefig(buf, format="png", bbox_inches="tight", dpi=120)
+        plt.close(fig)
+        return buf.getvalue()
+
+    with st.spinner("正在渲染图表..."):
+        if chart_key == "salary":
+            if 'salary_avg' in df.columns:
+                st.image(get_cached_chart_image("salary", df), width='stretch')
+            else:
+                st.warning("薪资数据未解析，请检查数据清洗流程。")
+        elif chart_key == "city":
+            if 'salary_avg' in df.columns and 'city' in df.columns:
+                st.image(get_cached_chart_image("city", df), width='stretch')
+            else:
+                st.warning("城市或薪资数据缺失。")
+        elif chart_key == "education":
+            if 'education' in df.columns:
+                st.image(get_cached_chart_image("education", df), width='stretch')
+            else:
+                st.warning("学历数据未解析。")
+        elif chart_key == "demand":
+            if count_df is not None and not count_df.empty:
+                st.image(get_cached_chart_image("demand", df, count_df), width='stretch')
+            else:
+                st.info("岗位统计数据暂未生成。")
+        elif chart_key == "experience":
+            if 'workYear' in df.columns and 'salary_avg' in df.columns:
+                st.image(get_cached_chart_image("experience", df), width='stretch')
+            else:
+                st.warning("工作经验或薪资数据缺失。")
 
 
 def page_wordcloud():
@@ -496,8 +521,9 @@ def page_wordcloud():
 
     st.write("---")
     st.markdown("### 🏢 行业领域分布")
-    if 'industryField' in df.columns:
-        industries = df['industryField'].dropna().str.split(',').explode().str.strip()
+    ind_col = 'industry_field' if 'industry_field' in df.columns else 'industryField'
+    if ind_col in df.columns:
+        industries = df[ind_col].dropna().str.split(',').explode().str.strip()
         industry_counts = industries.value_counts().head(15)
         st.pyplot(viz.plot_horizontal_bar(industry_counts, "行业领域分布 Top 15", "岗位数量"))
 
@@ -599,7 +625,22 @@ def page_ml():
                 cluster_names = {}
                 # 获取与 Embedding 完全一致的抽样数据集
                 sampled_df = get_sampled_df(df, len(y))
-                raw_texts = sampled_df['positionDetail'].fillna('').astype(str).tolist()
+                # 防御性处理：当 positionDetail 不存在时，拼接 positionName + keyword
+                if 'positionDetail' in sampled_df.columns:
+                    raw_texts = sampled_df['positionDetail'].fillna('').astype(str).tolist()
+                else:
+                    parts = []
+                    if 'positionName' in sampled_df.columns:
+                        parts.append(sampled_df['positionName'].fillna('').astype(str))
+                    if 'keyword' in sampled_df.columns:
+                        parts.append(sampled_df['keyword'].fillna('').astype(str))
+                    if parts:
+                        combined = parts[0]
+                        for p in parts[1:]:
+                            combined = combined + ' ' + p
+                        raw_texts = combined.tolist()
+                    else:
+                        raw_texts = [''] * len(sampled_df)
                 sample_texts = [tokenize(clean_text(t)) for t in raw_texts]
                 
                 # 1. 在全局样本上拟合 TF-IDF（保留有绝对区分度的词，过滤低于 5 次的低频错词/冷门词）
@@ -766,10 +807,12 @@ def page_resume_match():
                         score = job['_match_score']
                         skills = job.get('_matched_skills', [])
 
-                        with st.expander(f"**#{i+1} {job['positionName']}** (匹配分: {score:.0f}) - {job['city']}: {job['salary']}", expanded=True):
-                            st.markdown(f"- 🏢 **公司**: {job.get('companyShortName', 'Unknown')} | 📊 **行业**: {job.get('financeStage', '')}")
-                            st.markdown(f"- 🎓 **要求**: {job.get('education', '不限')} | 📅 **经验**: {job.get('workYear', '不限')}")
-                            st.markdown(f"- 📝 **岗位优势**: {job.get('positionAdvantage', '无')}")
+                        with st.expander(f"**#{i+1} {job.get('positionName', job.get('position_name', '未知岗位'))}** (匹配分: {score:.0f}) - {job.get('city', '')}: {job.get('salary', '')}", expanded=True):
+                            company_name = job.get('companyFullName', job.get('company_full_name', job.get('companyShortName', '未知')))
+                            industry_name = job.get('industryField', job.get('industry_field', ''))
+                            st.markdown(f"- 🏢 **公司**: {company_name} | 📊 **行业**: {industry_name}")
+                            st.markdown(f"- 🎓 **要求**: {job.get('education', '不限')} | 📅 **经验**: {job.get('workYear', job.get('work_year', '不限'))}")
+                            st.markdown(f"- 📝 **岗位关键词**: {job.get('keyword', '无')}")
 
                             if skills:
                                 st.markdown(f"- ✅ **匹配技能**: {', '.join(skills)}")
@@ -1141,7 +1184,7 @@ def page_report_export():
 
     <div class="footer">
         <p>📋 由招聘数据智能分析系统自动生成 | {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
-        <p style="margin-top:6px;">系统版本 v2.0 Pro | 数据源自拉勾网</p>
+        <p style="margin-top:6px;">系统版本 v2.0 Pro | 数据源自主流招聘平台（BOSS直聘等）</p>
     </div>
 
 </div>
@@ -1322,7 +1365,7 @@ st.sidebar.markdown(
 username = st.session_state.get('username', '')
 st.sidebar.markdown(
     f"""
-    <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; display: flex; align-items: center;'>
+    <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; display: flex; align-items: center; margin-bottom: 20px;'>
         <div style='font-size: 1.5rem; margin-right: 10px;'>👤</div>
         <div>
             <div style='font-size: 0.75rem; color: #718096;'>当前登录用户</div>
@@ -1345,14 +1388,20 @@ st.sidebar.markdown("<div style='font-size:0.75rem; font-weight:bold; color:#a0a
 st.sidebar.page_link(page_company_obj)
 st.sidebar.page_link(page_report_obj)
 
-# 4. 中部系统状态卡片（充实空白空间）
+# 4. 中部系统状态卡片
+try:
+    df_sidebar = load_data()
+    total_sidebar = f"{len(df_sidebar):,}" if df_sidebar is not None else "--"
+except:
+    total_sidebar = "--"
+
 st.sidebar.markdown(
-    """
+    f"""
     <div style='margin-top: 25px; margin-bottom: 8px; font-size: 0.75rem; font-weight: bold; color: #a0aec0; letter-spacing: 0.5px;'>📊 系统运行状态</div>
     <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; margin-bottom: 15px;'>
         <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
             <span style='color: #718096;'>数据规模:</span>
-            <span style='font-weight: bold; color: #2d3748;'>430,000+ 条</span>
+            <span style='font-weight: bold; color: #2d3748;'>{total_sidebar} 条</span>
         </div>
         <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
             <span style='color: #718096;'>系统版本:</span>
@@ -1367,11 +1416,8 @@ st.sidebar.markdown(
     unsafe_allow_html=True
 )
 
-# 弹性间距，将退出按钮推至最底
-st.sidebar.markdown("<div style='height: 18vh;'></div>", unsafe_allow_html=True)
-
-# 5. 退出登录按钮
-st.sidebar.divider()
+# 5. 退出登录按钮 (移除过大的间距，让其正常显示在卡片下方)
+st.sidebar.write("")
 if st.sidebar.button("🚪 退出登录", use_container_width=True):
     st.session_state['logged_in'] = False
     st.session_state['username'] = ''

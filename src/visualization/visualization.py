@@ -99,9 +99,21 @@ def generate_wordcloud(df, text_col='positionDetail', max_words=150):
     图表4：岗位描述核心技能词云
     """
     # 合并文本列
-    text_data = df[text_col].dropna().tolist()
-    if 'positionName' in df.columns:
-        text_data += df['positionName'].dropna().tolist()
+    text_data = []
+    if text_col in df.columns:
+        text_data += df[text_col].dropna().astype(str).tolist()
+    
+    if 'position_name' in df.columns:
+        text_data += df['position_name'].dropna().astype(str).tolist()
+    elif 'positionName' in df.columns:
+        text_data += df['positionName'].dropna().astype(str).tolist()
+        
+    if 'keyword' in df.columns:
+        text_data += df['keyword'].dropna().astype(str).tolist()
+        
+    if not text_data:
+        text_data = ['无相关数据']
+        
     raw_text = ' '.join(text_data)
 
     # HTML 实体及 nbsp 残留清洗
@@ -143,6 +155,13 @@ def plot_experience_salary(df, exp_col='workYear', salary_col='salary_avg'):
     """
     图表5：工作经验与薪资关联箱线图
     """
+    # 防御性处理：自动检测列名
+    if exp_col not in df.columns:
+        if 'work_year' in df.columns:
+            exp_col = 'work_year'
+        else:
+            return plt.figure()  # 返回空图
+
     fig, ax = plt.subplots(figsize=(10, 6))
 
     # 确定排序顺序

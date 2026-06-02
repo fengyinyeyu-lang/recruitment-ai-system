@@ -105,7 +105,7 @@ def recommend_jobs(resume_info, df_jobs, top_n=5):
 
     for idx, row in df_jobs.iterrows():
         score = 0
-        job_skills_str = str(row.get('positionDetail', '')) + " " + str(row.get('keyword', ''))
+        job_skills_str = str(row.get('positionDetail', '')) + " " + str(row.get('positionName', '')) + " " + str(row.get('keyword', ''))
 
         # 1. 技能匹配得分 (最核心指标)
         job_skills_match = []

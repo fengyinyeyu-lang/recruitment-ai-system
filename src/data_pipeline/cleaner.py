@@ -20,7 +20,7 @@ class DataCleaner:
 
     def __init__(self, data_path=None):
         if data_path is None:
-            data_path = os.path.join(PROJECT_ROOT, 'data', 'raw', '拉勾网2023招聘数据.csv')
+            data_path = os.path.join(PROJECT_ROOT, 'data', 'raw', 'jobonline_scraped_jobs.csv')
 
         if not os.path.exists(data_path):
             raise FileNotFoundError(f"原始数据文件不存在: {data_path}")
@@ -36,21 +36,46 @@ class DataCleaner:
     def clean_salary(self):
         """
         清洗薪资数据：
-        将 '15k-30k' 格式解析为 salary_low, salary_high, salary_avg 三列（单位：K）
+        处理 '4000-6000元', '1.5-3万', '-1--1' 等格式，
+        统一输出 salary_low, salary_high, salary_avg 三列（单位：K/月）
         """
-        def parse_salary(salary_str):
-            if pd.isna(salary_str):
+        def parse_salary(row):
+            low_str, high_str = str(row.get('lowSalary', '')), str(row.get('highSalary', ''))
+            
+            # 处理无效值
+            if low_str == '-1' or high_str == '-1' or pd.isna(row.get('lowSalary')):
                 return np.nan, np.nan, np.nan
-            s = str(salary_str).strip().lower()
-            # 匹配 "15k-30k" 或 "15K-30K" 格式
-            match = re.match(r'(\d+)k?\s*-\s*(\d+)k?', s)
-            if match:
-                low = float(match.group(1))
-                high = float(match.group(2))
-                return low, high, (low + high) / 2
-            return np.nan, np.nan, np.nan
+                
+            try:
+                # 提取数字部分
+                low_match = re.search(r'([\d.]+)', low_str)
+                high_match = re.search(r'([\d.]+)', high_str)
+                
+                if not low_match or not high_match:
+                    return np.nan, np.nan, np.nan
+                    
+                low_val = float(low_match.group(1))
+                high_val = float(high_match.group(1))
+                
+                # 判断单位：如果 high_str 包含 '万'，或者是 1.5 这种小数，通常是万
+                if '万' in high_str or high_val < 100:
+                    # 单位是万，转换为 K (x10)
+                    low_k = low_val * 10
+                    high_k = high_val * 10
+                else:
+                    # 单位是元，转换为 K (/1000)
+                    low_k = low_val / 1000
+                    high_k = high_val / 1000
+                    
+                # 过滤异常值 (比如日薪 24 元/时这种，转换为 K 会小于 1)
+                if high_k < 1:
+                    return np.nan, np.nan, np.nan
+                    
+                return low_k, high_k, (low_k + high_k) / 2
+            except Exception:
+                return np.nan, np.nan, np.nan
 
-        parsed = self.df['salary'].apply(parse_salary)
+        parsed = self.df.apply(parse_salary, axis=1)
         self.df['salary_low'] = parsed.apply(lambda x: x[0])
         self.df['salary_high'] = parsed.apply(lambda x: x[1])
         self.df['salary_avg'] = parsed.apply(lambda x: x[2])

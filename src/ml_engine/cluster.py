@@ -62,9 +62,18 @@ def perform_kmeans_clustering(df, n_clusters=5, max_features=1000, sample_size=3
     terms = vectorizer.get_feature_names_out()
     cluster_keywords = {}
     for i in range(n_clusters):
-        top_words = [terms[ind] for ind in order_centroids[i, :10]]
+        # 方案1改进：扩大候选词池至 100 个，经过滤后再取前 10 个有效词，防止核心技能词落榜
+        top_words_candidates = [terms[ind] for ind in order_centroids[i, :100]]
         from src.data_pipeline.nlp_processor import filter_words
-        cluster_keywords[i] = filter_words(top_words)
+        
+        # filter_words 会剔除 NOISE_WORDS 里的词，返回过滤后以逗号分隔的字符串
+        filtered_words_str = filter_words(top_words_candidates)
+        
+        # 将逗号分隔的字符串拆分并去除空字符串（防御性编程：防止出现空项）
+        valid_words = [w.strip() for w in filtered_words_str.split(',') if w.strip()]
+        
+        # 截取前 10 个高质量的有效技能词重新拼接展示
+        cluster_keywords[i] = ", ".join(valid_words[:10])
 
     # PCA 降维用于可视化
     pca = PCA(n_components=2, random_state=42)

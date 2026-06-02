@@ -30,14 +30,28 @@ def build_knowledge_base(csv_path=None):
     # 提前初始化通用汇总需要的变量
     master_mean = bachelor_mean = gap_mean = gap_pct = 0.0
 
+    # 辅助函数：兼容新旧列名
+    def _col(name_map):
+        """传入 {new_name: old_name} 字典，返回 DataFrame 中实际存在的列名，不存在则返回 None"""
+        for name in name_map:
+            if name in df.columns:
+                return name
+        return None
+
+    company_col = _col({'company_full_name': 1, 'companyFullName': 1})
+    work_year_col = _col({'work_year': 1, 'workYear': 1})
+    company_size_col = _col({'company_size': 1, 'companySize': 1})
+    position_detail_col = _col({'position_detail': 1, 'positionDetail': 1})
+
     # 1. 全局概览
     avg_s = df['salary_avg'].mean()
     med_s = df['salary_avg'].median()
+    company_count = df[company_col].nunique() if company_col else 0
     knowledge.append({
         "title": "全局招聘市场概览",
         "content": (
             f"本数据库共收录 {len(df)} 条招聘数据，覆盖 {df['city'].nunique()} 个城市、"
-            f"{df['companyFullName'].nunique()} 家企业、{df['keyword'].nunique()} 个岗位类别。"
+            f"{company_count} 家企业、{df['keyword'].nunique()} 个岗位类别。"
             f"全行业平均薪资为 {avg_s:.1f}K，薪资中位数为 {med_s:.1f}K。"
         )
     })
@@ -164,8 +178,9 @@ def build_knowledge_base(csv_path=None):
                     })
 
     # 5. 工作经验与薪资关系
-    if 'workYear' in df.columns:
-        exp_sal = df.groupby('workYear')['salary_avg'].agg(['mean', 'count']).sort_values('mean', ascending=False)
+    # 5. 工作经验与薪资关系
+    if work_year_col:
+        exp_sal = df.groupby(work_year_col)['salary_avg'].agg(['mean', 'count']).sort_values('mean', ascending=False)
         exp_lines = [f"{idx}: 平均 {row['mean']:.1f}K (共 {row['count']} 条)" for idx, row in exp_sal.iterrows()]
         knowledge.append({
             "title": "工作经验与薪资关系",
@@ -173,8 +188,9 @@ def build_knowledge_base(csv_path=None):
         })
 
     # 6. 公司规模与薪资
-    if 'companySize' in df.columns:
-        size_sal = df.groupby('companySize')['salary_avg'].agg(['mean', 'count']).sort_values('mean', ascending=False)
+    # 6. 公司规模与薪资
+    if company_size_col:
+        size_sal = df.groupby(company_size_col)['salary_avg'].agg(['mean', 'count']).sort_values('mean', ascending=False)
         size_lines = [f"{idx}: 平均 {row['mean']:.1f}K (共 {row['count']} 条)" for idx, row in size_sal.iterrows()]
         knowledge.append({
             "title": "公司规模与薪资关系",
@@ -182,11 +198,12 @@ def build_knowledge_base(csv_path=None):
         })
 
     # 7. 典型岗位描述片段（每个keyword取一条代表性描述）
-    if 'positionDetail' in df.columns:
+    # 7. 典型岗位描述片段（每个 keyword 取一条代表性描述）
+    if position_detail_col:
         for kw in df['keyword'].value_counts().head(20).index:
-            sample = df[df['keyword'] == kw].dropna(subset=['positionDetail']).head(3)
+            sample = df[df['keyword'] == kw].dropna(subset=[position_detail_col]).head(3)
             if not sample.empty:
-                details = sample['positionDetail'].tolist()
+                details = sample[position_detail_col].tolist()
                 clean_details = []
                 for d in details:
                     d = str(d).replace('<br>', '').replace('\\n', '').strip()
@@ -209,8 +226,12 @@ def build_knowledge_base(csv_path=None):
     edu_summary = df.groupby('edu_norm' if 'edu_norm' in df.columns else 'education')['salary_avg'].mean().sort_values(ascending=False)
     edu_summary_str = ", ".join([f"{e}:{s:.1f}K" for e, s in edu_summary.items()])
     # 经验薪资简版
-    exp_summary = df.groupby('workYear')['salary_avg'].mean().sort_values(ascending=False)
-    exp_summary_str = ", ".join([f"{e}:{s:.1f}K" for e, s in exp_summary.items()])
+    # 经验薪资简版
+    if work_year_col:
+        exp_summary = df.groupby(work_year_col)['salary_avg'].mean().sort_values(ascending=False)
+        exp_summary_str = ", ".join([f"{e}:{s:.1f}K" for e, s in exp_summary.items()])
+    else:
+        exp_summary_str = "数据缺失"
 
     knowledge.append({
         "title": "通用招聘数据统计汇总",

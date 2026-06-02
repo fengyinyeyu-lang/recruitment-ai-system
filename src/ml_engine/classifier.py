@@ -226,7 +226,9 @@ def _encode_salary_features(df):
         features['education'] = data['education'].fillna('不限')
 
     # 工作年限数值化
-    if 'workYear' in data.columns:
+    # 工作年限数值化
+    work_year_col = 'workYear' if 'workYear' in data.columns else ('work_year' if 'work_year' in data.columns else None)
+    if work_year_col:
         def parse_exp(x):
             if pd.isna(x):
                 return 0
@@ -239,19 +241,22 @@ def _encode_salary_features(df):
             if nums:
                 return int(nums[-1])
             return 0
-        features['exp_years'] = data['workYear'].apply(parse_exp)
+        features['exp_years'] = data[work_year_col].apply(parse_exp)
 
     # 岗位类别编码
     if 'keyword' in data.columns:
         features['keyword'] = data['keyword'].fillna('其他')
 
     # 公司规模编码
-    if 'companySize' in data.columns:
-        features['company_size'] = data['companySize'].fillna('未知')
+    # 公司规模编码
+    company_size_col = 'companySize' if 'companySize' in data.columns else ('company_size' if 'company_size' in data.columns else None)
+    if company_size_col:
+        features['company_size'] = data[company_size_col].fillna('未知')
 
     # 行业领域编码
-    if 'industryField' in data.columns:
-        features['industry'] = data['industryField'].fillna('未知')
+    industry_col = 'industryField' if 'industryField' in data.columns else ('industry_field' if 'industry_field' in data.columns else None)
+    if industry_col:
+        features['industry'] = data[industry_col].fillna('未知')
         features['industry'] = features['industry'].str.split(',').str[0].str.strip()
 
     # 目标值
