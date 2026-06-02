@@ -57,23 +57,87 @@ def perform_kmeans_clustering(df, n_clusters=5, max_features=1000, sample_size=3
     kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
     sample_df['cluster'] = kmeans.fit_predict(X)
 
-    # 提取每个聚类的核心关键词（过滤非技能噪声词）
+    # 提取每个聚类的核心关键词（白名单准入 + 英文黑名单拦截）
     order_centroids = kmeans.cluster_centers_.argsort()[:, ::-1]
     terms = vectorizer.get_feature_names_out()
     cluster_keywords = {}
+    
+    # 高纯度 IT 中文技术白名单（只有这些中文词才有资格出现在特征词画像中）
+    IT_TECH_CN = {
+        '前端', '后端', '测试', '运维', '算法', '架构', '数据', '模型',
+        '嵌入式', '爬虫', '视觉', '微服务', '分布式', '全栈', '硬件',
+        '客户端', '游戏', '人工智能', '深度学习', '机器学习', '图像',
+        '大数据', '云计算', '网络安全', '中间件', '渲染', '微调',
+        '安全', '音频', '识别', '挖掘', '接口', '框架', '引擎',
+        '仿真', '固件', '驱动', '协议', '编译', '容器', '虚拟化',
+        '自动化', '智能', '语音', '搜索', '推荐', '风控', '量化',
+    }
+    
+    # 英文黑名单：招聘 JD 中常见的纯英文非技术词（国名、职位、业务泛词等）
+    ENG_BLACKLIST = {
+        # 国家/地名
+        'china', 'beijing', 'shanghai', 'shenzhen', 'hangzhou', 'guangzhou',
+        'nanjing', 'chengdu', 'wuhan', 'xian', 'suzhou', 'tianjin',
+        # 职位/角色/头衔
+        'manager', 'leader', 'director', 'senior', 'junior', 'intern',
+        'engineer', 'developer', 'designer', 'architect', 'specialist',
+        'officer', 'executive', 'supervisor', 'coordinator', 'consultant',
+        'analyst', 'associate', 'assistant', 'head', 'lead', 'chief',
+        'vp', 'cto', 'ceo', 'coo', 'cfo', 'cso', 'staff', 'principal',
+        # 业务/管理泛词
+        'team', 'project', 'product', 'business', 'service', 'support',
+        'market', 'sales', 'customer', 'client', 'partner', 'company',
+        'group', 'global', 'local', 'remote', 'onsite', 'hybrid',
+        'design', 'plan', 'strategy', 'process', 'solution', 'system',
+        'experience', 'skill', 'ability', 'knowledge', 'degree',
+        'year', 'years', 'month', 'day', 'time', 'work', 'job',
+        'good', 'strong', 'great', 'best', 'new', 'high', 'low',
+        'base', 'based', 'related', 'required', 'preferred',
+        'and', 'the', 'for', 'with', 'from', 'this', 'that',
+        'will', 'can', 'may', 'must', 'should', 'need',
+        'etc', 'e.g', 'i.e', 'ok', 'yes', 'no',
+        # 招聘中常见的英文缩写噪声
+        'gs', 'cdp', 'tdi', 'tse', 'ba', 'pm', 'hr', 'hc',
+        'jd', 'kpi', 'okr', 'roi', 'prd', 'brd', 'sop',
+        'feed', 'pass', 'open', 'free', 'pro', 'plus', 'max', 'top',
+        'hrbp', 'aps', 'mj', 'tdl', 'emc', 'ei',
+    }
+    
+    import re
+    
     for i in range(n_clusters):
-        # 方案1改进：扩大候选词池至 100 个，经过滤后再取前 10 个有效词，防止核心技能词落榜
-        top_words_candidates = [terms[ind] for ind in order_centroids[i, :100]]
-        from src.data_pipeline.nlp_processor import filter_words
+        # 扩大候选词池至 300 个，确保能在沙里淘出真金
+        candidate_count = min(300, len(terms))
+        top_words_candidates = [terms[ind] for ind in order_centroids[i, :candidate_count]]
         
-        # filter_words 会剔除 NOISE_WORDS 里的词，返回过滤后以逗号分隔的字符串
-        filtered_words_str = filter_words(top_words_candidates)
+        valid_words = []
+        for w in top_words_candidates:
+            w = w.strip().lower()
+            if not w:
+                continue
+            # 单字符特殊放行（仅限已知的单字母技术名称）
+            if len(w) < 2 and w not in ('c', 'r'):
+                continue
+                
+            # 特征判断1：纯英文/数字/技术符号组成
+            is_eng_tech = bool(re.match(r'^[a-z0-9\+#\.]+$', w))
+            
+            if is_eng_tech:
+                # 英文词必须不在黑名单中才放行
+                if w in ENG_BLACKLIST:
+                    continue
+                if w not in valid_words:
+                    valid_words.append(w)
+            elif w in IT_TECH_CN:
+                # 中文词必须在白名单中
+                if w not in valid_words:
+                    valid_words.append(w)
+            
+            # 取满10个即可
+            if len(valid_words) >= 10:
+                break
         
-        # 将逗号分隔的字符串拆分并去除空字符串（防御性编程：防止出现空项）
-        valid_words = [w.strip() for w in filtered_words_str.split(',') if w.strip()]
-        
-        # 截取前 10 个高质量的有效技能词重新拼接展示
-        cluster_keywords[i] = ", ".join(valid_words[:10])
+        cluster_keywords[i] = ", ".join(valid_words) if valid_words else "无典型IT技术特征"
 
     # PCA 降维用于可视化
     pca = PCA(n_components=2, random_state=42)
