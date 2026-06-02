@@ -68,27 +68,90 @@ def plot_city_salary(df, city_col='city', salary_col='salary_avg', top_n=10):
 # @st.cache_resource(show_spinner=False)  # 移除缓存以解决 Matplotlib 渲染线程卡死问题
 def plot_education_pie(df, edu_col='education'):
     """
-    图表3：学历要求分布饼图
+    图表3：学历要求分布饼图（优化版：镂空环形图 + 侧边详细图例 + 小占比合并）
     """
-    fig, ax = plt.subplots(figsize=(8, 8))
+    # 1. 防御性检查
+    if edu_col not in df.columns or df.empty:
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.text(0.5, 0.5, '暂无学历数据', ha='center', va='center', fontsize=14, color='#777')
+        ax.axis('off')
+        return fig
+
     edu_counts = df[edu_col].value_counts()
-    colors = MACAROON_COLORS[:len(edu_counts)]
-    ax.set_aspect('equal')
-    wedges, texts, autotexts = ax.pie(
-        edu_counts.values,
-        labels=edu_counts.index,
-        autopct='%1.1f%%',
+    total = edu_counts.sum()
+    if total == 0:
+        fig, ax = plt.subplots(figsize=(10, 8))
+        ax.text(0.5, 0.5, '暂无学历数据', ha='center', va='center', fontsize=14, color='#777')
+        ax.axis('off')
+        return fig
+
+    # 2. 数据合并：占比小于 1.5% 的归为“其他”
+    threshold_val = total * 0.015
+    above_threshold = edu_counts[edu_counts >= threshold_val]
+    below_threshold = edu_counts[edu_counts < threshold_val]
+
+    if not below_threshold.empty:
+        merged_counts = above_threshold.copy()
+        other_sum = below_threshold.sum()
+        if '其他' in merged_counts:
+            merged_counts['其他'] += other_sum
+        else:
+            merged_counts['其他'] = other_sum
+    else:
+        merged_counts = edu_counts
+
+    # 确保“其他”排在最后（如果存在的话）
+    if '其他' in merged_counts.index:
+        other_val = merged_counts['其他']
+        merged_counts = merged_counts.drop('other', errors='ignore')  # 以防万一
+        merged_counts = merged_counts.drop('其他', errors='ignore')
+        # 降序排列剩余部分
+        merged_counts = merged_counts.sort_values(ascending=False)
+        merged_counts['其他'] = other_val
+    else:
+        merged_counts = merged_counts.sort_values(ascending=False)
+
+    # 3. 绘图准备
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # 动态配置颜色，防止类别超出 MACAROON_COLORS 预设导致越界
+    if len(merged_counts) <= len(MACAROON_COLORS):
+        colors = MACAROON_COLORS[:len(merged_counts)]
+    else:
+        colors = sns.color_palette('pastel', len(merged_counts))
+
+    # 4. 绘制镂空环形图 (Donut Chart)
+    wedges, _ = ax.pie(
+        merged_counts.values,
+        labels=None,  # 圆环外不标注文字，完全避免重叠
         startangle=140,
         colors=colors,
         radius=0.8,
-        pctdistance=0.7,
-        textprops={'fontsize': 12, 'color': '#333'}
+        wedgeprops=dict(width=0.3, edgecolor='white', linewidth=2)  # width=0.3 实现镂空
     )
-    for autotext in autotexts:
-        autotext.set_color('white')
-        autotext.set_weight('bold')
+
+    # 5. 在圆环中心显示总岗位数
+    ax.text(0, 0, f'岗位总数\n{total:,}', ha='center', va='center', fontsize=14, fontweight='bold', color='#2b3a4a')
+
+    # 6. 生成详细图例标签（格式：“学历名称 (百分比)”）并添加到右侧
+    legend_labels = []
+    for label, val in zip(merged_counts.index, merged_counts.values):
+        percentage = (val / total) * 100
+        legend_labels.append(f'{label} ({percentage:.1f}%)')
+
+    ax.legend(
+        wedges,
+        legend_labels,
+        title="学历门槛占比",
+        loc="center left",
+        bbox_to_anchor=(0.85, 0.5),
+        fontsize=11,
+        title_fontsize=12,
+        frameon=False
+    )
+
     ax.axis('off')
-    ax.set_title('学历准入门槛分布', fontsize=14, fontweight='bold', color='#2b3a4a', pad=20)
+    ax.set_title('学历准入门槛分布', fontsize=16, fontweight='bold', color='#2b3a4a', pad=20)
     plt.tight_layout()
     return fig
 

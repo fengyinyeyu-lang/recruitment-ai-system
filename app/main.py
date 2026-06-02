@@ -18,15 +18,6 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-# 强制热重载本项目的自定义子模块，以防 Streamlit 运行期间无法感知 src 目录下代码文件的修改
-import importlib
-for mod_name in list(sys.modules.keys()):
-    if mod_name.startswith("src.") or mod_name == "src":
-        try:
-            importlib.reload(sys.modules[mod_name])
-        except Exception:
-            pass
-
 # 初始化 session_state（最顶部，必须在 set_page_config 之前判断）
 if 'logged_in' not in st.session_state:
     st.session_state['logged_in'] = False
@@ -68,8 +59,7 @@ def load_models():
     # 加载 kmeans.pkl 等模型文件（此处项目暂无直接存储的 kmeans.pkl，预留占位）
     pass
 
-# ============ 登录检查逻辑 ============
-from app.components.auth import check_login
+# ============ 登录状态样式控制 ============
 if not st.session_state['logged_in']:
     st.markdown("""
     <style>
@@ -77,7 +67,6 @@ if not st.session_state['logged_in']:
         [data-testid="stSidebarCollapsedControl"] { display: none; }
     </style>
     """, unsafe_allow_html=True)
-    check_login()  # 渲染登录页并 st.stop()
 
 # ============ 全局 CSS ============
 BASE_CSS = """
@@ -137,7 +126,7 @@ BASE_CSS = """
         color: #224abe;
         transform: translateY(-1px);
     }
-    .stButton>button[kind="primary"] {
+    .stButton>button[kind="primary"], button[data-testid="baseButton-primary"] {
         background: linear-gradient(135deg, #4e73df, #224abe);
         color: white;
         border: none;
@@ -151,9 +140,34 @@ BASE_CSS = """
     .stDecoration {display: none;}
     #MainMenu {visibility: hidden;}
     button[data-testid="stDeployButton"] {display: none;}
+    
+    /* 强制重置可能由于翻译插件导致的偏移 */
+    body { top: 0px !important; }
 </style>
 """
+
+import streamlit.components.v1 as components
+def inject_anti_translation():
+    """注入一段隐藏的 JS 脚本，禁止浏览器自动翻译当前页面（解决 React DOM 被破坏导致组件丢失的问题）"""
+    components.html(
+        """
+        <script>
+            try {
+                window.parent.document.documentElement.lang = 'zh-CN';
+                var meta = window.parent.document.createElement('meta');
+                meta.name = "google";
+                meta.content = "notranslate";
+                window.parent.document.getElementsByTagName('head')[0].appendChild(meta);
+            } catch(e) {}
+        </script>
+        """,
+        height=0,
+        width=0
+    )
+
 st.markdown(BASE_CSS, unsafe_allow_html=True)
+inject_anti_translation()
+
 
 # ============ 页面渲染 ============
 
@@ -463,32 +477,35 @@ def page_visualization():
         plt.close(fig)
         return buf.getvalue()
 
-    with st.spinner("正在渲染图表..."):
-        if chart_key == "salary":
-            if 'salary_avg' in df.columns:
-                st.image(get_cached_chart_image("salary", df), width='stretch')
-            else:
-                st.warning("薪资数据未解析，请检查数据清洗流程。")
-        elif chart_key == "city":
-            if 'salary_avg' in df.columns and 'city' in df.columns:
-                st.image(get_cached_chart_image("city", df), width='stretch')
-            else:
-                st.warning("城市或薪资数据缺失。")
-        elif chart_key == "education":
-            if 'education' in df.columns:
-                st.image(get_cached_chart_image("education", df), width='stretch')
-            else:
-                st.warning("学历数据未解析。")
-        elif chart_key == "demand":
-            if count_df is not None and not count_df.empty:
-                st.image(get_cached_chart_image("demand", df, count_df), width='stretch')
-            else:
-                st.info("岗位统计数据暂未生成。")
-        elif chart_key == "experience":
-            if 'workYear' in df.columns and 'salary_avg' in df.columns:
-                st.image(get_cached_chart_image("experience", df), width='stretch')
-            else:
-                st.warning("工作经验或薪资数据缺失。")
+    st.markdown("<div style='margin-top: 25px;'></div>", unsafe_allow_html=True)
+    chart_placeholder = st.empty()
+    with chart_placeholder.container():
+        with st.spinner("正在渲染图表..."):
+            if chart_key == "salary":
+                if 'salary_avg' in df.columns:
+                    st.image(get_cached_chart_image("salary", df), use_container_width=True)
+                else:
+                    st.warning("薪资数据未解析，请检查数据清洗流程。")
+            elif chart_key == "city":
+                if 'salary_avg' in df.columns and 'city' in df.columns:
+                    st.image(get_cached_chart_image("city", df), use_container_width=True)
+                else:
+                    st.warning("城市或薪资数据缺失。")
+            elif chart_key == "education":
+                if 'education' in df.columns:
+                    st.image(get_cached_chart_image("education", df), use_container_width=True)
+                else:
+                    st.warning("学历数据未解析。")
+            elif chart_key == "demand":
+                if count_df is not None and not count_df.empty:
+                    st.image(get_cached_chart_image("demand", df, count_df), use_container_width=True)
+                else:
+                    st.info("岗位统计数据暂未生成。")
+            elif chart_key == "experience":
+                if 'workYear' in df.columns and 'salary_avg' in df.columns:
+                    st.image(get_cached_chart_image("experience", df), use_container_width=True)
+                else:
+                    st.warning("工作经验或薪资数据缺失。")
 
 
 def page_wordcloud():
@@ -1346,96 +1363,144 @@ def page_ai_assistant():
             st.rerun()
 
 
-# ============ 路由注册（全部使用函数，避免中文文件名编码问题） ============
-page_home_obj = st.Page(page_home, title="系统首页", icon="🏠", default=True)
-page_vis_obj = st.Page(page_visualization, title="数据可视化大屏", icon="📊")
-page_wc_obj = st.Page(page_wordcloud, title="岗位词云与需求", icon="☁️")
-page_ml_obj = st.Page(page_ml, title="机器学习聚类分析", icon="🧠")
-page_ai_obj = st.Page(page_ai_assistant, title="智能求职助手", icon="🤖")
-page_resume_obj = st.Page(page_resume_match, title="PDF 简历推荐", icon="📄")
-page_company_obj = st.Page(page_company_profile, title="企业深度画像", icon="🏢")
-page_report_obj = st.Page(page_report_export, title="分析报告导出", icon="📋")
+# ============ 登录页面视图函数 ============
+def page_login():
+    """🔒 用户登录与注册"""
+    from app.components.auth import login, register
+    st.markdown("""
+    <style>
+        [data-testid="stSidebar"] { display: none; }
+        [data-testid="stSidebarCollapsedControl"] { display: none; }
+    </style>
+    """, unsafe_allow_html=True)
 
-# 隐藏默认的自动导航栏，通过 position="hidden" 实现
-pg = st.navigation(
-    [page_home_obj, page_vis_obj, page_wc_obj, page_ml_obj, page_ai_obj, page_resume_obj,
-     page_company_obj, page_report_obj],
-    position="hidden"
-)
+    _, col, _ = st.columns([1, 1, 1])
+    with col:
+        st.write("<br><br><br>", unsafe_allow_html=True)
+        st.title("💼 招聘智能系统")
+        st.markdown(
+            "<p style='color:#6c757d; font-size:1.1rem;'>企业级大数据洞察与智能助手</p>",
+            unsafe_allow_html=True
+        )
+        st.write("---")
 
-# ============ 自定义侧边栏（精装商业美化版） ============
-# 1. 顶部渐变系统 Logo 徽章
-st.sidebar.markdown(
-    """
-    <div style='background: linear-gradient(135deg, #4e73df, #224abe); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 30px; box-shadow: 0 4px 12px rgba(78,115,223,0.15);'>
-        <div style='font-size: 1.25rem; font-weight: 800; color: white; letter-spacing: 1px;'>💼 RECRUIT AI</div>
-        <div style='font-size: 0.8rem; color: rgba(255,255,255,0.85); margin-top: 3px;'>招聘数据智能分析系统</div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+        choice = st.radio("请选择操作", ["登录", "注册"], horizontal=True, key="auth_choice_radio")
+        username_input = st.text_input("👤 用户名", key="auth_username_input")
+        password_input = st.text_input("🔒 密码", type="password", key="auth_password_input")
+        st.write("<br>", unsafe_allow_html=True)
 
-# 2. 用户身份信息展示卡片
-username = st.session_state.get('username', '')
-st.sidebar.markdown(
-    f"""
-    <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; display: flex; align-items: center; margin-bottom: 20px;'>
-        <div style='font-size: 1.5rem; margin-right: 10px;'>👤</div>
-        <div>
-            <div style='font-size: 0.75rem; color: #718096;'>当前登录用户</div>
-            <div style='font-size: 0.95rem; font-weight: bold; color: #2d3748;'>{username}</div>
+        if choice == "登录":
+            if st.button("🚀 登 录 系 统", type="primary", key="auth_login_btn"):
+                if login(username_input, password_input):
+                    st.success("登录成功，正在进入系统...")
+                    st.rerun()
+                else:
+                    st.error("用户名或密码错误！")
+        else:
+            if st.button("📝 注 册 账 号", type="primary", key="auth_register_btn"):
+                success, msg = register(username_input, password_input)
+                if success:
+                    st.success(msg)
+                    import time
+                    time.sleep(1)
+                    st.rerun()
+                else:
+                    st.error(msg)
+
+
+# ============ 路由注册（动态路由守卫） ============
+if not st.session_state.get('logged_in', False):
+    page_login_obj = st.Page(page_login, title="登录", icon="🔒")
+    pg = st.navigation([page_login_obj], position="hidden")
+else:
+    page_home_obj = st.Page(page_home, title="系统首页", icon="🏠", default=True)
+    page_vis_obj = st.Page(page_visualization, title="数据可视化大屏", icon="📊")
+    page_wc_obj = st.Page(page_wordcloud, title="岗位词云与需求", icon="☁️")
+    page_ml_obj = st.Page(page_ml, title="机器学习聚类分析", icon="🧠")
+    page_ai_obj = st.Page(page_ai_assistant, title="智能求职助手", icon="🤖")
+    page_resume_obj = st.Page(page_resume_match, title="PDF 简历推荐", icon="📄")
+    page_company_obj = st.Page(page_company_profile, title="企业深度画像", icon="🏢")
+    page_report_obj = st.Page(page_report_export, title="分析报告导出", icon="📋")
+
+    pg = st.navigation(
+        [page_home_obj, page_vis_obj, page_wc_obj, page_ml_obj, page_ai_obj, page_resume_obj,
+         page_company_obj, page_report_obj],
+        position="hidden"
+    )
+
+    # ============ 自定义侧边栏（精装商业美化版） ============
+    # 1. 顶部渐变系统 Logo 徽章
+    st.sidebar.markdown(
+        """
+        <div style='background: linear-gradient(135deg, #4e73df, #224abe); border-radius: 12px; padding: 16px; text-align: center; margin-bottom: 30px; box-shadow: 0 4px 12px rgba(78,115,223,0.15);'>
+            <div style='font-size: 1.25rem; font-weight: 800; color: white; letter-spacing: 1px;'>💼 RECRUIT AI</div>
+            <div style='font-size: 0.8rem; color: rgba(255,255,255,0.85); margin-top: 3px;'>招聘数据智能分析系统</div>
         </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+        """,
+        unsafe_allow_html=True
+    )
 
-# 3. 页面导航菜单
-st.sidebar.page_link(page_home_obj)
-st.sidebar.page_link(page_vis_obj)
-st.sidebar.page_link(page_wc_obj)
-st.sidebar.page_link(page_ml_obj)
-st.sidebar.page_link(page_ai_obj)
-st.sidebar.page_link(page_resume_obj)
-st.sidebar.markdown("<div style='margin: 12px 0; border-top: 1px solid #edf2f7;'></div>", unsafe_allow_html=True)
-st.sidebar.markdown("<div style='font-size:0.75rem; font-weight:bold; color:#a0aec0; letter-spacing:0.5px; margin-bottom:6px;'>⭐ 高级功能</div>", unsafe_allow_html=True)
-st.sidebar.page_link(page_company_obj)
-st.sidebar.page_link(page_report_obj)
-
-# 4. 中部系统状态卡片
-try:
-    df_sidebar = load_data()
-    total_sidebar = f"{len(df_sidebar):,}" if df_sidebar is not None else "--"
-except:
-    total_sidebar = "--"
-
-st.sidebar.markdown(
-    f"""
-    <div style='margin-top: 25px; margin-bottom: 8px; font-size: 0.75rem; font-weight: bold; color: #a0aec0; letter-spacing: 0.5px;'>📊 系统运行状态</div>
-    <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; margin-bottom: 15px;'>
-        <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
-            <span style='color: #718096;'>数据规模:</span>
-            <span style='font-weight: bold; color: #2d3748;'>{total_sidebar} 条</span>
+    # 2. 用户身份信息展示卡片
+    username_display = st.session_state.get('username', '')
+    st.sidebar.markdown(
+        f"""
+        <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; display: flex; align-items: center; margin-bottom: 20px;'>
+            <div style='font-size: 1.5rem; margin-right: 10px;'>👤</div>
+            <div>
+                <div style='font-size: 0.75rem; color: #718096;'>当前登录用户</div>
+                <div style='font-size: 0.95rem; font-weight: bold; color: #2d3748;'>{username_display}</div>
+            </div>
         </div>
-        <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
-            <span style='color: #718096;'>系统版本:</span>
-            <span style='font-weight: bold; color: #2d3748;'>v2.0.0 Pro</span>
-        </div>
-        <div style='display: flex; justify-content: space-between; font-size: 0.8rem;'>
-            <span style='color: #718096;'>NLP 引擎:</span>
-            <span style='font-weight: bold; color: #48bb78;'>🟢 运行正常</span>
-        </div>
-    </div>
-    """,
-    unsafe_allow_html=True
-)
+        """,
+        unsafe_allow_html=True
+    )
 
-# 5. 退出登录按钮 (移除过大的间距，让其正常显示在卡片下方)
-st.sidebar.write("")
-if st.sidebar.button("🚪 退出登录", use_container_width=True):
-    st.session_state['logged_in'] = False
-    st.session_state['username'] = ''
-    st.rerun()
+    # 3. 页面导航菜单
+    st.sidebar.page_link(page_home_obj)
+    st.sidebar.page_link(page_vis_obj)
+    st.sidebar.page_link(page_wc_obj)
+    st.sidebar.page_link(page_ml_obj)
+    st.sidebar.page_link(page_ai_obj)
+    st.sidebar.page_link(page_resume_obj)
+    st.sidebar.markdown("<div style='margin: 12px 0; border-top: 1px solid #edf2f7;'></div>", unsafe_allow_html=True)
+    st.sidebar.markdown("<div style='font-size:0.75rem; font-weight:bold; color:#a0aec0; letter-spacing:0.5px; margin-bottom:6px;'>⭐ 高级功能</div>", unsafe_allow_html=True)
+    st.sidebar.page_link(page_company_obj)
+    st.sidebar.page_link(page_report_obj)
+
+    # 4. 中部系统状态卡片
+    try:
+        df_sidebar = load_data()
+        total_sidebar = f"{len(df_sidebar):,}" if df_sidebar is not None else "--"
+    except:
+        total_sidebar = "--"
+
+    st.sidebar.markdown(
+        f"""
+        <div style='margin-top: 25px; margin-bottom: 8px; font-size: 0.75rem; font-weight: bold; color: #a0aec0; letter-spacing: 0.5px;'>📊 系统运行状态</div>
+        <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; margin-bottom: 15px;'>
+            <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
+                <span style='color: #718096;'>数据规模:</span>
+                <span style='font-weight: bold; color: #2d3748;'>{total_sidebar} 条</span>
+            </div>
+            <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
+                <span style='color: #718096;'>系统版本:</span>
+                <span style='font-weight: bold; color: #2d3748;'>v2.0.0 Pro</span>
+            </div>
+            <div style='display: flex; justify-content: space-between; font-size: 0.8rem;'>
+                <span style='color: #718096;'>NLP 引擎:</span>
+                <span style='font-weight: bold; color: #48bb78;'>🟢 运行正常</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # 5. 退出登录按钮
+    st.sidebar.write("")
+    if st.sidebar.button("🚪 退出登录"):
+        st.session_state['logged_in'] = False
+        st.session_state['username'] = ''
+        st.rerun()
 
 # 运行当前路由页面
 pg.run()
