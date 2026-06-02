@@ -6,6 +6,7 @@
 机器学习与自动识别。标签来源为 KMeans 聚类生成的伪标签。
 """
 import os
+import re
 import logging
 import numpy as np
 import torch
@@ -13,13 +14,19 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score, classification_report, mean_absolute_error, r2_score
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import LabelEncoder
+import pandas as pd
+import json
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # 项目根目录 & 默认模型保存路径
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
 DEFAULT_MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'nn_classifier.pt')
+SALARY_MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'salary_predictor.pkl')
+SALARY_ENCODERS_PATH = os.path.join(PROJECT_ROOT, 'models', 'salary_encoders.json')
 
 
 class JobClassifierNN(nn.Module):
@@ -190,3 +197,208 @@ def predict(X, model_path=None):
         labels = torch.argmax(model(X_t), dim=1).cpu().numpy()
 
     return labels
+
+
+# =====================================================================
+# 薪资预测模块 — 基于 RandomForest 的回归模型
+# 使用城市、学历、工作经验、岗位类别等特征预测平均薪资
+# =====================================================================
+
+def _encode_salary_features(df):
+    """
+    对薪资预测所需的特征进行编码和预处理。
+    返回 (特征矩阵, 目标值, 编码器字典)
+    """
+    data = df.copy()
+
+    # 只保留有薪资数据的行
+    data = data.dropna(subset=['salary_avg'])
+
+    # 特征工程
+    features = pd.DataFrame(index=data.index)
+
+    # 城市编码
+    if 'city' in data.columns:
+        features['city'] = data['city'].fillna('未知')
+
+    # 学历编码
+    if 'education' in data.columns:
+        features['education'] = data['education'].fillna('不限')
+
+    # 工作年限数值化
+    if 'workYear' in data.columns:
+        def parse_exp(x):
+            if pd.isna(x):
+                return 0
+            x = str(x)
+            if '不限' in x:
+                return 0
+            if '应届' in x:
+                return 0
+            nums = re.findall(r'\d+', x)
+            if nums:
+                return int(nums[-1])
+            return 0
+        features['exp_years'] = data['workYear'].apply(parse_exp)
+
+    # 岗位类别编码
+    if 'keyword' in data.columns:
+        features['keyword'] = data['keyword'].fillna('其他')
+
+    # 公司规模编码
+    if 'companySize' in data.columns:
+        features['company_size'] = data['companySize'].fillna('未知')
+
+    # 行业领域编码
+    if 'industryField' in data.columns:
+        features['industry'] = data['industryField'].fillna('未知')
+        features['industry'] = features['industry'].str.split(',').str[0].str.strip()
+
+    # 目标值
+    y = data['salary_avg'].values
+
+    # 对类别特征进行 Label Encoding
+    encoders = {}
+    cat_cols = features.select_dtypes(include=['object']).columns
+    for col in cat_cols:
+        le = LabelEncoder()
+        features[col] = features[col].astype(str)
+        features[col] = le.fit_transform(features[col])
+        encoders[col] = {label: int(code) for label, code in zip(le.classes_, le.transform(le.classes_))}
+
+    return features.values, y, encoders, features.columns.tolist()
+
+
+def train_salary_predictor(df):
+    """
+    训练薪资预测模型（RandomForest回归）。
+
+    参数:
+        df: 清洗后的DataFrame
+
+    返回:
+        (model, metrics_dict) 训练好的模型和评估指标
+    """
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.metrics import mean_absolute_error, r2_score
+    import re
+
+    X, y, encoders, feature_names = _encode_salary_features(df)
+
+    if len(X) < 100:
+        raise ValueError(f"数据量不足（{len(X)}条），无法训练可靠的薪资预测模型")
+
+    # 划分训练集/测试集
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+
+    # 训练 RandomForest 回归模型
+    model = RandomForestRegressor(
+        n_estimators=200,
+        max_depth=15,
+        min_samples_leaf=5,
+        random_state=42,
+        n_jobs=-1
+    )
+    model.fit(X_train, y_train)
+
+    # 评估
+    y_pred = model.predict(X_test)
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+
+    metrics = {
+        'mae': float(mae),
+        'r2': float(r2),
+        'samples': len(X),
+        'feature_names': feature_names,
+        'feature_importance': {
+            name: float(imp)
+            for name, imp in zip(feature_names, model.feature_importances_)
+        }
+    }
+
+    # 保存模型和编码器
+    os.makedirs(os.path.dirname(SALARY_MODEL_PATH), exist_ok=True)
+    import pickle
+    with open(SALARY_MODEL_PATH, 'wb') as f:
+        pickle.dump(model, f)
+    with open(SALARY_ENCODERS_PATH, 'w', encoding='utf-8') as f:
+        json.dump({'encoders': encoders, 'feature_names': feature_names}, f, ensure_ascii=False)
+
+    logging.info(f"薪资预测模型训练完成: MAE={mae:.2f}, R²={r2:.4f}")
+
+    return model, metrics
+
+
+def predict_salary(features_dict, model=None):
+    """
+    使用训练好的模型预测薪资。
+
+    参数:
+        features_dict: dict，包含 city, education, workYear, keyword 等特征
+        model: 可选，已加载的模型
+
+    返回:
+        predicted_salary: float，预测的平均薪资（K）
+        confidence: str，置信度描述
+    """
+    import pickle
+    import re
+
+    # 加载模型和编码器
+    if model is None:
+        if not os.path.exists(SALARY_MODEL_PATH):
+            raise FileNotFoundError("薪资预测模型不存在，请先训练模型。")
+        with open(SALARY_MODEL_PATH, 'rb') as f:
+            model = pickle.load(f)
+
+    if not os.path.exists(SALARY_ENCODERS_PATH):
+        raise FileNotFoundError("编码器文件不存在，请先训练模型。")
+
+    with open(SALARY_ENCODERS_PATH, 'r', encoding='utf-8') as f:
+        enc_data = json.load(f)
+    encoders = enc_data['encoders']
+    feature_names = enc_data['feature_names']
+
+    # 构建特征向量
+    feature_vec = []
+    for col in feature_names:
+        if col in encoders:
+            # 类别特征
+            val = features_dict.get(col, '未知')
+            val_str = str(val)
+            if val_str in encoders[col]:
+                feature_vec.append(encoders[col][val_str])
+            else:
+                feature_vec.append(0)
+        elif col == 'exp_years':
+            # 数值特征
+            val = features_dict.get('workYear', '0')
+            if isinstance(val, (int, float)):
+                feature_vec.append(val)
+            else:
+                nums = re.findall(r'\d+', str(val))
+                feature_vec.append(int(nums[-1]) if nums else 0)
+        else:
+            feature_vec.append(0)
+
+    X = np.array([feature_vec])
+    pred = model.predict(X)[0]
+
+    # 置信度评估
+    if hasattr(model, 'estimators_'):
+        # 用树的方差评估置信度
+        all_preds = np.array([tree.predict(X)[0] for tree in model.estimators_])
+        std = np.std(all_preds)
+        if std < 2:
+            confidence = "高"
+        elif std < 5:
+            confidence = "中"
+        else:
+            confidence = "较低"
+    else:
+        confidence = "中"
+
+    return round(float(pred), 1), confidence

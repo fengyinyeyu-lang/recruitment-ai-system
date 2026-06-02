@@ -137,6 +137,25 @@ def get_user_chat_history(username, limit=20):
                  .all())
 
 
+def delete_chat_log(log_id):
+    """删除单条对话记录"""
+    with Session() as s:
+        log = s.query(ChatLog).filter_by(id=log_id).first()
+        if log:
+            s.delete(log)
+            s.commit()
+            return True
+        return False
+
+
+def delete_all_chat_logs(username):
+    """删除用户的所有对话记录"""
+    with Session() as s:
+        deleted = s.query(ChatLog).filter_by(username=username).delete()
+        s.commit()
+        return deleted
+
+
 def get_job_stats():
     """获取数据库中的岗位统计信息（使用原生 SQL 兼容 to_sql 创建的表）"""
     with ENGINE.connect() as conn:

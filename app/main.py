@@ -6,7 +6,12 @@
 import streamlit as st
 import sys
 import os
+import pandas as pd
 import matplotlib.pyplot as plt
+
+# ============ 全局 matplotlib 中文字体配置（必须在所有绘图之前） ============
+plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei']
+plt.rcParams['axes.unicode_minus'] = False
 
 # 将项目根目录加入 Python 路径，确保 src 包可被导入
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -168,6 +173,8 @@ def page_home():
     - **🧠 机器学习聚类分析**：利用 K-Means 与 PyTorch 神经网络进行岗位智能分类
     - **🤖 AI 智能求职助手**：基于通义千问大模型的定制化求职建议
     - **📄 PDF 简历解析**：上传简历自动提取技能、学历、经验，智能匹配推荐岗位
+    - **🏢 企业深度画像**：分析企业招聘规模、薪资水平、热门岗位
+    - **📋 分析报告导出**：一键生成 HTML 数据报告
 
     👈 请从左侧边栏选择功能模块开始体验。
     """)
@@ -770,6 +777,399 @@ def page_resume_match():
                 st.info("请上传包含技能关键词的简历以获取推荐。")
 
 
+def page_company_profile():
+    """🏢 企业深度画像分析"""
+    st.session_state['last_active_page'] = 'company_profile'
+    import numpy as np
+
+    # 确保 matplotlib 中文字体配置生效
+    plt.rcParams['font.sans-serif'] = ['SimHei', 'Microsoft YaHei', 'Arial Unicode MS']
+    plt.rcParams['axes.unicode_minus'] = False
+
+    st.header("🏢 企业招聘画像分析")
+    st.markdown(
+        "<p style='color:#6c757d;'>深度分析企业的招聘规模、薪资水平、热门岗位和人才偏好，为企业求职决策提供数据支持。</p>",
+        unsafe_allow_html=True
+    )
+    st.write("---")
+
+    df = load_data()
+    if df is None or df.empty:
+        st.error("⚠️ 未找到清洗后的数据！")
+        st.stop()
+
+    # 选择企业
+    if 'companyFullName' not in df.columns:
+        st.warning("数据中缺少企业名称字段")
+        return
+
+    # 按招聘数量排序企业
+    company_counts = df['companyFullName'].value_counts()
+    top_companies = company_counts.head(50).index.tolist()
+
+    selected_company = st.selectbox(
+        "🏢 选择要分析的企业",
+        top_companies,
+        help="按招聘数量排序的前50家企业",
+        key="company_select"
+    )
+
+    if selected_company:
+        company_df = df[df['companyFullName'] == selected_company]
+        company_short = company_df['companyShortName'].iloc[0] if 'companyShortName' in company_df.columns else selected_company
+
+        st.markdown(f"### 📊 {company_short} 招聘画像")
+
+        # 概览指标
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("📋 招聘岗位数", len(company_df))
+        with col2:
+            if 'salary_avg' in company_df.columns:
+                st.metric("💰 平均薪资", f"{company_df['salary_avg'].mean():.1f}K")
+        with col3:
+            if 'city' in company_df.columns:
+                cities = company_df['city'].unique()
+                st.metric("🏙️ 招聘城市", len(cities))
+        with col4:
+            if 'keyword' in company_df.columns:
+                st.metric("🔑 岗位类别", company_df['keyword'].nunique())
+
+        st.write("---")
+
+        # ====== Tab 路由导航：点击切换不同图表 ======
+        tab_kw, tab_city, tab_edu, tab_salary, tab_info = st.tabs([
+            "岗位类别", "城市分布", "学历要求", "薪资分布", "综合信息"
+        ])
+
+        # Tab 1: 热门岗位
+        with tab_kw:
+            if 'keyword' in company_df.columns:
+                kw_counts = company_df['keyword'].value_counts().head(10)
+                fig, ax = plt.subplots(figsize=(12, 6))
+                colors = plt.cm.Blues(np.linspace(0.4, 0.9, len(kw_counts)))
+                bars = ax.barh(kw_counts.index[::-1], kw_counts.values[::-1], color=colors[::-1])
+                ax.set_xlabel('招聘数量', fontsize=11)
+                ax.set_title(f'{company_short} — 热门岗位 Top 10', fontsize=13, fontweight='bold')
+                for bar in bars:
+                    w = bar.get_width()
+                    ax.text(w + 0.5, bar.get_y() + bar.get_height()/2, str(int(w)), ha='left', va='center')
+                plt.tight_layout()
+                st.pyplot(fig)
+                plt.close(fig)
+
+        # Tab 2: 城市分布
+        with tab_city:
+            if 'city' in company_df.columns:
+                city_counts = company_df['city'].value_counts().head(10)
+                fig, ax = plt.subplots(figsize=(12, 6))
+                colors = plt.cm.Greens(np.linspace(0.4, 0.9, len(city_counts)))
+                bars = ax.bar(range(len(city_counts)), city_counts.values, color=colors)
+                ax.set_ylabel('招聘数量', fontsize=11)
+                ax.set_title(f'{company_short} — 城市分布 Top 10', fontsize=13, fontweight='bold')
+                ax.set_xticks(range(len(city_counts)))
+                ax.set_xticklabels(city_counts.index, rotation=30, ha='right', fontsize=10)
+                for i, bar in enumerate(bars):
+                    h = bar.get_height()
+                    ax.text(bar.get_x() + bar.get_width()/2, h + 0.3, str(int(h)), ha='center', va='bottom')
+                plt.tight_layout()
+                st.pyplot(fig)
+                plt.close(fig)
+
+        # Tab 3: 学历要求
+        with tab_edu:
+            if 'education' in company_df.columns:
+                edu_counts = company_df['education'].value_counts()
+                fig, ax = plt.subplots(figsize=(8, 8))
+                colors = ['#4e73df', '#1cc88a', '#36b9cc', '#f6c23e', '#e74a3b']
+                wedges, texts, autotexts = ax.pie(
+                    edu_counts.values, labels=edu_counts.index,
+                    autopct='%1.1f%%', colors=colors[:len(edu_counts)],
+                    startangle=140, textprops={'fontsize': 11}
+                )
+                for autotext in autotexts:
+                    autotext.set_color('white')
+                    autotext.set_weight('bold')
+                ax.set_title(f'{company_short} — 学历门槛', fontsize=13, fontweight='bold')
+                plt.tight_layout()
+                st.pyplot(fig)
+                plt.close(fig)
+
+        # Tab 4: 薪资分布
+        with tab_salary:
+            if 'salary_avg' in company_df.columns:
+                fig, ax = plt.subplots(figsize=(12, 6))
+                ax.hist(company_df['salary_avg'].dropna(), bins=15, color='#4e73df', edgecolor='white', alpha=0.8)
+                ax.axvline(company_df['salary_avg'].mean(), color='#e74a3b', linestyle='--', linewidth=2, label=f'均值: {company_df["salary_avg"].mean():.1f}K')
+                ax.axvline(company_df['salary_avg'].median(), color='#1cc88a', linestyle='-', linewidth=2, label=f'中位数: {company_df["salary_avg"].median():.1f}K')
+                ax.set_xlabel('平均薪资 (K)', fontsize=11)
+                ax.set_ylabel('岗位数量', fontsize=11)
+                ax.set_title(f'{company_short} — 薪资水平分布', fontsize=13, fontweight='bold')
+                ax.legend()
+                ax.grid(axis='y', linestyle='--', alpha=0.3)
+                plt.tight_layout()
+                st.pyplot(fig)
+                plt.close(fig)
+
+        # Tab 5: 综合信息（经验+行业）
+        with tab_info:
+            info_col1, info_col2 = st.columns(2)
+            with info_col1:
+                if 'workYear' in company_df.columns:
+                    exp_counts = company_df['workYear'].value_counts()
+                    st.markdown("**经验要求分布**")
+                    exp_html = """<style>
+                        .exp-table { width:100%%; border-collapse:collapse; font-size:0.9rem; }
+                        .exp-table th { padding:10px 14px; text-align:left; background:linear-gradient(135deg, #4e73df, #224abe); color:white; font-weight:600; }
+                        .exp-table td { padding:10px 14px; border-bottom:1px solid #edf2f7; }
+                        .exp-table tr:hover td { background:#f8faff; }
+                    </style><table class='exp-table'><thead><tr><th>经验要求</th><th>岗位数</th></tr></thead><tbody>"""
+                    for exp_val, count in exp_counts.items():
+                        exp_html += f"<tr><td>{exp_val}</td><td>{count}</td></tr>"
+                    exp_html += "</tbody></table>"
+                    st.markdown(exp_html, unsafe_allow_html=True)
+            with info_col2:
+                if 'industryField' in company_df.columns:
+                    st.markdown("**行业领域**")
+                    inds = company_df['industryField'].dropna().str.split(',').explode().str.strip()
+                    ind_counts = inds.value_counts().head(8)
+                    ind_html = """<style>
+                        .ind-table { width:100%%; border-collapse:collapse; font-size:0.9rem; }
+                        .ind-table th { padding:10px 14px; text-align:left; background:linear-gradient(135deg, #1cc88a, #36b9cc); color:white; font-weight:600; }
+                        .ind-table td { padding:10px 14px; border-bottom:1px solid #edf2f7; }
+                        .ind-table tr:hover td { background:#f8faff; }
+                    </style><table class='ind-table'><thead><tr><th>行业领域</th><th>关联岗位数</th></tr></thead><tbody>"""
+                    for ind_val, count in ind_counts.items():
+                        ind_html += f"<tr><td>{ind_val}</td><td>{count}</td></tr>"
+                    ind_html += "</tbody></table>"
+                    st.markdown(ind_html, unsafe_allow_html=True)
+
+        # 岗位列表
+        with st.expander("📋 查看全部招聘岗位"):
+            display_cols = ['positionName', 'city', 'salary', 'education', 'workYear']
+            available = [c for c in display_cols if c in company_df.columns]
+            st.dataframe(company_df[available], use_container_width=True, hide_index=True)
+
+
+def page_report_export():
+    """📋 智能分析报告导出"""
+    st.session_state['last_active_page'] = 'report_export'
+
+    st.header("📋 智能分析报告")
+    st.markdown(
+        "<p style='color:#6c757d;'>一键生成 HTML 格式的招聘数据分析报告，包含核心指标、图表和洞察结论。</p>",
+        unsafe_allow_html=True
+    )
+    st.write("---")
+
+    df = load_data()
+    count_df = load_count_df()
+    if df is None or df.empty:
+        st.error("⚠️ 未找到清洗后的数据！")
+        st.stop()
+
+    st.markdown("#### 📄 报告内容配置")
+    col_r1, col_r2 = st.columns(2)
+    with col_r1:
+        report_city = st.selectbox(
+            "🏙️ 选择分析城市",
+            ["全国"] + sorted(df['city'].dropna().unique()) if 'city' in df.columns else ["全国"]
+        )
+    with col_r2:
+        report_keyword = st.selectbox(
+            "🔑 选择岗位方向",
+            ["全部岗位"] + sorted(df['keyword'].dropna().unique()) if 'keyword' in df.columns else ["全部岗位"]
+        )
+
+    # 过滤数据
+    report_df = df.copy()
+    if report_city != "全国" and 'city' in df.columns:
+        report_df = report_df[report_df['city'] == report_city]
+    if report_keyword != "全部岗位" and 'keyword' in df.columns:
+        report_df = report_df[report_df['keyword'] == report_keyword]
+
+    # 报告预览
+    st.markdown("---")
+    st.markdown("##### 📊 报告预览")
+
+    # 核心指标
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        st.metric("📋 岗位总数", len(report_df))
+    with c2:
+        if 'salary_avg' in report_df.columns:
+            st.metric("💰 平均薪资", f"{report_df['salary_avg'].mean():.1f}K")
+    with c3:
+        if 'city' in report_df.columns:
+            st.metric("🏙️ 覆盖城市", report_df['city'].nunique())
+    with c4:
+        if 'companyFullName' in report_df.columns:
+            st.metric("🏢 企业数", report_df['companyFullName'].nunique())
+
+    if st.button("📥 生成并下载 HTML 报告", type="primary", use_container_width=True):
+        with st.spinner("正在生成分析报告..."):
+            try:
+                from datetime import datetime
+
+                # 构建报告内容
+                title = f"招聘数据分析报告"
+                subtitle = f"分析范围: {report_city} | {report_keyword} | 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                username = st.session_state.get('username', '用户')
+
+                # 统计数据
+                total = len(report_df)
+                avg_salary = report_df['salary_avg'].mean() if 'salary_avg' in report_df.columns else 0
+                city_count = report_df['city'].nunique() if 'city' in report_df.columns else 0
+                company_count = report_df['companyFullName'].nunique() if 'companyFullName' in report_df.columns else 0
+                kw_count = report_df['keyword'].nunique() if 'keyword' in report_df.columns else 0
+
+                # Top 城市薪资
+                city_salary_html = ""
+                if 'city' in report_df.columns and 'salary_avg' in report_df.columns:
+                    cs = report_df.groupby('city')['salary_avg'].mean().sort_values(ascending=False).head(10)
+                    city_salary_html = "<table><tr><th>城市</th><th>平均薪资(K)</th></tr>"
+                    for city, sal in cs.items():
+                        city_salary_html += f"<tr><td>{city}</td><td>{sal:.1f}K</td></tr>"
+                    city_salary_html += "</table>"
+
+                # Top 岗位需求
+                demand_html = ""
+                if 'keyword' in report_df.columns:
+                    dem = report_df['keyword'].value_counts().head(15)
+                    demand_html = "<table><tr><th>岗位类别</th><th>需求数量</th></tr>"
+                    for kw, cnt in dem.items():
+                        demand_html += f"<tr><td>{kw}</td><td>{cnt}</td></tr>"
+                    demand_html += "</table>"
+
+                # 学历分布
+                edu_html = ""
+                if 'education' in report_df.columns:
+                    edu = report_df['education'].value_counts()
+                    edu_html = "<table><tr><th>学历</th><th>占比</th></tr>"
+                    for e, c in edu.items():
+                        edu_html += f"<tr><td>{e}</td><td>{c}/{total} ({c/total*100:.1f}%)</td></tr>"
+                    edu_html += "</table>"
+
+                # 薪资分布区间
+                salary_dist_html = ""
+                if 'salary_avg' in report_df.columns:
+                    bins = [0, 10, 15, 20, 25, 30, 40, 50, 100]
+                    labels = ['<10K', '10-15K', '15-20K', '20-25K', '25-30K', '30-40K', '40-50K', '>50K']
+                    report_df['salary_bin'] = pd.cut(report_df['salary_avg'], bins=bins, labels=labels)
+                    sd = report_df['salary_bin'].value_counts().sort_index()
+                    salary_dist_html = "<table><tr><th>薪资区间</th><th>岗位数</th></tr>"
+                    for b, c in sd.items():
+                        salary_dist_html += f"<tr><td>{b}</td><td>{c}</td></tr>"
+                    salary_dist_html += "</table>"
+
+                # 完整 HTML
+                html_content = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title}</title>
+<style>
+    * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+    body {{ font-family: 'Helvetica Neue', 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f8f9fc; color: #2b3a4a; }}
+    .header {{ background: linear-gradient(135deg, #4e73df, #224abe); color: white; padding: 40px 50px; border-radius: 0 0 20px 20px; }}
+    .header h1 {{ font-size: 2rem; margin-bottom: 8px; }}
+    .header p {{ opacity: 0.9; font-size: 1rem; }}
+    .container {{ max-width: 1000px; margin: 0 auto; padding: 30px 20px; }}
+    .section {{ background: white; border-radius: 12px; padding: 24px; margin-bottom: 20px; box-shadow: 0 2px 10px rgba(0,0,0,0.04); }}
+    .section h2 {{ color: #4e73df; font-size: 1.3rem; margin-bottom: 16px; border-left: 4px solid #4e73df; padding-left: 12px; }}
+    .metrics {{ display: flex; gap: 16px; flex-wrap: wrap; }}
+    .metric {{ flex: 1; min-width: 150px; background: #f8fafc; border-radius: 10px; padding: 16px; text-align: center; }}
+    .metric .value {{ font-size: 1.8rem; font-weight: 700; color: #4e73df; }}
+    .metric .label {{ font-size: 0.85rem; color: #858796; margin-top: 4px; }}
+    table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
+    th, td {{ padding: 10px 14px; text-align: left; border-bottom: 1px solid #edf2f7; font-size: 0.9rem; }}
+    th {{ background: #f8fafc; color: #4e73df; font-weight: 600; }}
+    tr:hover td {{ background: #f8faff; }}
+    .footer {{ text-align: center; color: #858796; font-size: 0.85rem; padding: 30px; }}
+    .tag {{ display: inline-block; background: #e8ecf1; border-radius: 4px; padding: 2px 8px; font-size: 0.8rem; margin: 2px; }}
+</style>
+</head>
+<body>
+<div class="header">
+    <h1>📊 {title}</h1>
+    <p>{subtitle}</p>
+    <p style="margin-top:8px;">生成用户: {username}</p>
+</div>
+<div class="container">
+
+    <div class="section">
+        <h2>📈 核心数据指标</h2>
+        <div class="metrics">
+            <div class="metric"><div class="value">{total:,}</div><div class="label">岗位总数</div></div>
+            <div class="metric"><div class="value">{avg_salary:.1f}K</div><div class="label">平均薪资</div></div>
+            <div class="metric"><div class="value">{city_count}</div><div class="label">覆盖城市</div></div>
+            <div class="metric"><div class="value">{company_count:,}</div><div class="label">企业数量</div></div>
+            <div class="metric"><div class="value">{kw_count}</div><div class="label">岗位类别</div></div>
+        </div>
+    </div>
+
+    <div class="section">
+        <h2>🏙️ 城市薪资排行 Top 10</h2>
+        {city_salary_html}
+    </div>
+
+    <div class="section">
+        <h2>🔥 热门岗位需求 Top 15</h2>
+        {demand_html}
+    </div>
+
+    <div class="section">
+        <h2>🎓 学历要求分布</h2>
+        {edu_html}
+    </div>
+
+    <div class="section">
+        <h2>💰 薪资区间分布</h2>
+        {salary_dist_html}
+    </div>
+
+    <div class="section">
+        <h2>💡 分析洞察与建议</h2>
+        <ul style="padding-left:20px; line-height:2; color:#555;">
+            <li>📊 本次分析覆盖 <b>{total:,}</b> 条岗位数据，平均薪资 <b>{avg_salary:.1f}K</b></li>
+            <li>🏙️ 薪资最高城市为 <b>{cs.index[0] if city_salary_html else "N/A"}</b>，平均 <b>{cs.iloc[0]:.1f}K</b></li>
+            <li>🔥 需求量最大的岗位类别为 <b>{dem.index[0] if demand_html else "N/A"}</b></li>
+            <li>📈 建议求职者关注高薪赛道，同时结合自身技能选择匹配度高的岗位</li>
+        </ul>
+    </div>
+
+    <div class="footer">
+        <p>📋 由招聘数据智能分析系统自动生成 | {datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+        <p style="margin-top:6px;">系统版本 v2.0 Pro | 数据源自拉勾网</p>
+    </div>
+
+</div>
+</body>
+</html>"""
+
+                # 提供下载
+                st.download_button(
+                    label="📥 下载 HTML 报告",
+                    data=html_content.encode('utf-8'),
+                    file_name=f"招聘分析报告_{datetime.now().strftime('%Y%m%d_%H%M')}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                )
+                st.success("✅ 报告生成完成！点击上方按钮下载。")
+                st.balloons()
+
+                # 预览
+                with st.expander("👁️ 预览报告"):
+                    import streamlit.components.v1 as components
+                    components.html(html_content, height=600, scrolling=True)
+
+            except Exception as e:
+                st.error(f"⚠️ 报告生成失败: {str(e)}")
+                import traceback
+                st.code(traceback.format_exc())
+
+
 def page_ai_assistant():
     """🤖 智能求职助手"""
     from src.llm_service.chat_api import chat_with_llm, generate_followup_questions
@@ -896,10 +1296,13 @@ page_wc_obj = st.Page(page_wordcloud, title="岗位词云与需求", icon="☁�
 page_ml_obj = st.Page(page_ml, title="机器学习聚类分析", icon="🧠")
 page_ai_obj = st.Page(page_ai_assistant, title="智能求职助手", icon="🤖")
 page_resume_obj = st.Page(page_resume_match, title="PDF 简历推荐", icon="📄")
+page_company_obj = st.Page(page_company_profile, title="企业深度画像", icon="🏢")
+page_report_obj = st.Page(page_report_export, title="分析报告导出", icon="📋")
 
 # 隐藏默认的自动导航栏，通过 position="hidden" 实现
 pg = st.navigation(
-    [page_home_obj, page_vis_obj, page_wc_obj, page_ml_obj, page_ai_obj, page_resume_obj],
+    [page_home_obj, page_vis_obj, page_wc_obj, page_ml_obj, page_ai_obj, page_resume_obj,
+     page_company_obj, page_report_obj],
     position="hidden"
 )
 
@@ -937,6 +1340,10 @@ st.sidebar.page_link(page_wc_obj)
 st.sidebar.page_link(page_ml_obj)
 st.sidebar.page_link(page_ai_obj)
 st.sidebar.page_link(page_resume_obj)
+st.sidebar.markdown("<div style='margin: 12px 0; border-top: 1px solid #edf2f7;'></div>", unsafe_allow_html=True)
+st.sidebar.markdown("<div style='font-size:0.75rem; font-weight:bold; color:#a0aec0; letter-spacing:0.5px; margin-bottom:6px;'>⭐ 高级功能</div>", unsafe_allow_html=True)
+st.sidebar.page_link(page_company_obj)
+st.sidebar.page_link(page_report_obj)
 
 # 4. 中部系统状态卡片（充实空白空间）
 st.sidebar.markdown(
