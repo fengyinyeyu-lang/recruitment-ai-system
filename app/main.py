@@ -780,17 +780,55 @@ def page_ai_assistant():
         st.session_state['last_active_page'] = 'ai_assistant'
         st.session_state['ai_quick_prompts'] = get_random_prompts(2)
 
+    # RAG 模式状态初始化
+    if 'rag_mode' not in st.session_state:
+        st.session_state['rag_mode'] = False
+
     st.header("🤖 求职专属大模型 AI 顾问")
     st.markdown(
         "<p style='color:#6c757d;'>基于通义千问强大的语义理解，为您提供简历修改、岗位选择、面试准备等定制化求职建议。</p>",
         unsafe_allow_html=True
     )
+
+    # ---- RAG 模式开关 ----
+    st.markdown("""
+    <style>
+    .rag-toggle-label {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: #224abe;
+    }
+    .rag-desc {
+        font-size: 0.8rem;
+        color: #6c757d;
+        margin-top: -8px;
+        margin-bottom: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    col_toggle, col_help = st.columns([1, 5])
+    with col_toggle:
+        rag_on = st.toggle("🧠 RAG 知识增强模式", value=st.session_state['rag_mode'], help="开启后，AI 会优先基于招聘数据库中的真实数据回答您的问题")
+        st.session_state['rag_mode'] = rag_on
+    with col_help:
+        if rag_on:
+            st.markdown("<span style='color:#1cc88a; font-size:0.85rem;'>✅ 已启用知识增强：AI 将基于数据库中的 43万+ 真实招聘数据作答</span>", unsafe_allow_html=True)
+        else:
+            st.markdown("<span style='color:#a0aec0; font-size:0.85rem;'>💡 开启后可获得基于真实招聘数据的精准回答</span>", unsafe_allow_html=True)
+
     st.write("---")
 
     for msg in st.session_state['messages']:
         avatar = "🧑‍💻" if msg["role"] == "user" else "🤖"
         with st.chat_message(msg["role"], avatar=avatar):
             st.markdown(msg["content"])
+            # 如果有引用来源，展示出来
+            if msg.get("sources"):
+                with st.expander("📚 参考知识来源"):
+                    for s in msg["sources"]:
+                        st.markdown(f"**{s['title']}** (相关度: {s['score']:.2f})")
+                        st.markdown(f"```\n{s['content'][:200]}...\n```")
 
     prompt = None
     st.markdown(
@@ -815,13 +853,40 @@ def page_ai_assistant():
             st.markdown(prompt)
         with st.chat_message("assistant", avatar="🤖"):
             with st.spinner("AI 顾问正在思考中..."):
-                response = chat_with_llm(prompt, st.session_state['messages'][:-1])
-                st.markdown(response)
-                st.session_state['messages'].append({"role": "assistant", "content": response})
-                
+                if rag_on:
+                    from src.llm_service.rag_engine import rag_chat
+                    response, sources = rag_chat(prompt, st.session_state['messages'][:-1])
+                    st.markdown(response)
+                    st.session_state['messages'].append({
+                        "role": "assistant",
+                        "content": response,
+                        "sources": sources
+                    })
+                    # 在对话流中展示知识来源
+                    if sources:
+                        with st.expander("📚 参考知识来源"):
+                            for s in sources:
+                                st.markdown(f"**{s['title']}** (相关度: {s['score']:.2f})")
+                                st.markdown(f"```\n{s['content'][:300]}...\n```")
+                else:
+                    response = chat_with_llm(prompt, st.session_state['messages'][:-1])
+                    st.markdown(response)
+                    st.session_state['messages'].append({"role": "assistant", "content": response})
+
                 # 对话结束，调用大模型根据历史对话生成具有高度关联性的 2 个追问推荐
                 st.session_state['ai_quick_prompts'] = generate_followup_questions(st.session_state['messages'])
                 st.rerun()
+
+    st.write("---")
+    # 增加 RAG 知识库管理按钮（可选）
+    if st.session_state['rag_mode']:
+        if st.button("🔄 重建 RAG 知识库索引", help="当数据更新后，点击此按钮重新构建知识库和向量索引"):
+            with st.spinner("正在重建知识库..."):
+                from src.llm_service.rag_engine import build_knowledge_base, get_rag_engine
+                build_knowledge_base()
+                get_rag_engine().rebuild_embeddings()
+            st.success("✅ RAG 知识库重建完成！")
+            st.rerun()
 
 
 # ============ 路由注册（全部使用函数，避免中文文件名编码问题） ============
