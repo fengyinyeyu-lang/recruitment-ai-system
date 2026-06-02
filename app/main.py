@@ -41,6 +41,15 @@ st.set_page_config(
 # ============ 数据加载缓存 ============
 @st.cache_data
 def load_data():
+    """优先从数据库加载，若数据库为空则回退到 CSV（兼容模式）"""
+    try:
+        from src.db_engine.repository import load_jobs_df, get_job_stats
+        stats = get_job_stats()
+        if stats['total'] > 0:
+            return load_jobs_df()
+    except Exception:
+        pass
+    # 回退到 CSV
     from src.data_pipeline.cleaner import load_processed_data
     return load_processed_data()
 
@@ -152,12 +161,13 @@ def page_home():
     st.markdown("""
     ### 欢迎使用招聘数据智能分析系统！
 
-    本系统基于拉勾网 29,500 条真实招聘数据，为您提供深入的招聘市场洞察：
+    本系统基于拉勾网 **430,000+** 条真实招聘数据（已清洗），为您提供深入的招聘市场洞察：
 
     - **📊 数据可视化大屏**：薪资分布、城市薪酬对比、学历门槛、经验薪资关联等 5 大核心图表
     - **☁️ 岗位词云与需求**：通过 NLP 技术提取技能热词，洞察市场风向
-    - **🧠 机器学习聚类分析**：利用 K-Means 算法对岗位进行智能分类
+    - **🧠 机器学习聚类分析**：利用 K-Means 与 PyTorch 神经网络进行岗位智能分类
     - **🤖 AI 智能求职助手**：基于通义千问大模型的定制化求职建议
+    - **📄 PDF 简历解析**：上传简历自动提取技能、学历、经验，智能匹配推荐岗位
 
     👈 请从左侧边栏选择功能模块开始体验。
     """)
@@ -324,7 +334,7 @@ def page_visualization():
     st.markdown("""
     <div class='dashboard-banner'>
         <h1>📈 招聘数据商业看板</h1>
-        <p>基于拉勾网 29,500 条真实数据的多维深度分析报表</p>
+        <p>基于拉勾网 430,000+ 条真实数据的多维深度分析报表</p>
     </div>
     """, unsafe_allow_html=True)
 
@@ -693,6 +703,73 @@ def page_ml():
                         st.error(f"⚠️ 预测失败：{str(e)}")
 
 
+def page_resume_match():
+    """📄 PDF 简历解析与岗位推荐"""
+    st.session_state['last_active_page'] = 'resume_match'
+    from src.feature.resume_parser import extract_text_from_pdf, parse_resume_info, recommend_jobs
+
+    st.header("📄 PDF 简历解析与岗位推荐")
+    st.markdown(
+        "<p style='color:#6c757d;'>上传你的 PDF 简历，系统自动提取关键信息并从海量岗位库中为你推荐最佳工作。</p>",
+        unsafe_allow_html=True
+    )
+    st.write("---")
+
+    # 文件上传区
+    uploaded_file = st.file_uploader("请上传你的简历 (PDF 格式)", type=["pdf"])
+
+    if uploaded_file:
+        with st.spinner("📖 正在解析 PDF 简历，提取关键信息..."):
+            text = extract_text_from_pdf(uploaded_file)
+
+        if not text:
+            st.error("⚠️ 简历解析失败，可能是加密 PDF 或扫描版图片，请检查文件内容。")
+        else:
+            # 解析信息
+            info = parse_resume_info(text)
+
+            st.success("✅ 简历解析成功！以下是提取的关键信息：")
+
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("🎓 学历", info.get('education', '未识别'))
+            with col2:
+                st.metric("📅 工作经验", f"{info.get('experience', 0)} 年")
+            with col3:
+                st.metric("🛠️ 技能数", len(info.get('skills', [])))
+
+            if info.get('skills'):
+                st.markdown("**💡 技能关键词提取：**")
+                skills_html = " ".join([f"<span style='background:#4e73df; color:white; padding:2px 8px; border-radius:4px; margin:2px'>{s}</span>" for s in info['skills']])
+                st.markdown(skills_html, unsafe_allow_html=True)
+            else:
+                st.info("ℹ️ 未在简历中检测到常用技术关键词，推荐可能不够准确。")
+
+            st.write("---")
+            st.subheader("💼 推荐岗位 (Top 5)")
+
+            if info.get('skills'):
+                df = load_data()
+                recommended_df = recommend_jobs(info, df, top_n=5)
+
+                if recommended_df.empty:
+                    st.warning("🤷 未找到匹配的岗位，请尝试在简历中增加更多技术关键词。")
+                else:
+                    for i, (_, job) in enumerate(recommended_df.iterrows()):
+                        score = job['_match_score']
+                        skills = job.get('_matched_skills', [])
+
+                        with st.expander(f"**#{i+1} {job['positionName']}** (匹配分: {score:.0f}) - {job['city']}: {job['salary']}", expanded=True):
+                            st.markdown(f"- 🏢 **公司**: {job.get('companyShortName', 'Unknown')} | 📊 **行业**: {job.get('financeStage', '')}")
+                            st.markdown(f"- 🎓 **要求**: {job.get('education', '不限')} | 📅 **经验**: {job.get('workYear', '不限')}")
+                            st.markdown(f"- 📝 **岗位优势**: {job.get('positionAdvantage', '无')}")
+
+                            if skills:
+                                st.markdown(f"- ✅ **匹配技能**: {', '.join(skills)}")
+            else:
+                st.info("请上传包含技能关键词的简历以获取推荐。")
+
+
 def page_ai_assistant():
     """🤖 智能求职助手"""
     from src.llm_service.chat_api import chat_with_llm, generate_followup_questions
@@ -753,10 +830,11 @@ page_vis_obj = st.Page(page_visualization, title="数据可视化大屏", icon="
 page_wc_obj = st.Page(page_wordcloud, title="岗位词云与需求", icon="☁️")
 page_ml_obj = st.Page(page_ml, title="机器学习聚类分析", icon="🧠")
 page_ai_obj = st.Page(page_ai_assistant, title="智能求职助手", icon="🤖")
+page_resume_obj = st.Page(page_resume_match, title="PDF 简历推荐", icon="📄")
 
 # 隐藏默认的自动导航栏，通过 position="hidden" 实现
 pg = st.navigation(
-    [page_home_obj, page_vis_obj, page_wc_obj, page_ml_obj, page_ai_obj], 
+    [page_home_obj, page_vis_obj, page_wc_obj, page_ml_obj, page_ai_obj, page_resume_obj],
     position="hidden"
 )
 
@@ -793,6 +871,7 @@ st.sidebar.page_link(page_vis_obj)
 st.sidebar.page_link(page_wc_obj)
 st.sidebar.page_link(page_ml_obj)
 st.sidebar.page_link(page_ai_obj)
+st.sidebar.page_link(page_resume_obj)
 
 # 4. 中部系统状态卡片（充实空白空间）
 st.sidebar.markdown(
@@ -801,11 +880,11 @@ st.sidebar.markdown(
     <div style='background-color: #f8fafc; border-radius: 10px; padding: 12px; border: 1px solid #edf2f7; margin-bottom: 15px;'>
         <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
             <span style='color: #718096;'>数据规模:</span>
-            <span style='font-weight: bold; color: #2d3748;'>29,500 条</span>
+            <span style='font-weight: bold; color: #2d3748;'>430,000+ 条</span>
         </div>
         <div style='display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 6px;'>
             <span style='color: #718096;'>系统版本:</span>
-            <span style='font-weight: bold; color: #2d3748;'>v1.0.2 Stable</span>
+            <span style='font-weight: bold; color: #2d3748;'>v2.0.0 Pro</span>
         </div>
         <div style='display: flex; justify-content: space-between; font-size: 0.8rem;'>
             <span style='color: #718096;'>NLP 引擎:</span>
