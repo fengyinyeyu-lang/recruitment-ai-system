@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/data", tags=["数据接口"])
 
 
 @router.get("/overview", response_model=ApiResponse)
-def get_overview(username: str = Depends(get_current_user)):
+def get_overview():
     """返回数据概览统计"""
     df = get_data_df()
     if df is None or df.empty:

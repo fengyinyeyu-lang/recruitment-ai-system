@@ -108,11 +108,11 @@ onMounted(async () => {
     statCards.value[2].value = formatNumber(data.city_count || data.total_cities || data.cities || 0)
     statCards.value[3].value = formatNumber(data.company_count || data.total_companies || data.companies || 0)
   } catch {
-    // 使用默认值
-    statCards.value[0].value = '12,458'
-    statCards.value[1].value = '¥15,680'
-    statCards.value[2].value = '156'
-    statCards.value[3].value = '3,842'
+    // API 调用失败时显示错误提示，不使用硬编码假数据
+    statCards.value[0].value = '加载失败'
+    statCards.value[1].value = '加载失败'
+    statCards.value[2].value = '加载失败'
+    statCards.value[3].value = '加载失败'
   } finally {
     loading.value = false
   }
