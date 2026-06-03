@@ -22,9 +22,6 @@ def preprocess_texts(df, text_col='positionDetail'):
     return preprocess_text_column(df, text_col)
 
 
-import streamlit as st
-
-@st.cache_data(show_spinner=False)
 def perform_kmeans_clustering(df, n_clusters=5, max_features=1000, sample_size=3000):
     """
     执行 KMeans 聚类分析
