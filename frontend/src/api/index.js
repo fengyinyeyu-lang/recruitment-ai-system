@@ -4,7 +4,7 @@ import router from '@/router'
 
 const request = axios.create({
   baseURL: '/api',
-  timeout: 60000
+  timeout: 300000
 })
 
 // 请求拦截器
@@ -82,6 +82,7 @@ export const vizAPI = {
 export const mlAPI = {
   kmeans: (data) => request.post('/ml/kmeans', data),
   nnTrain: (data) => request.post('/ml/nn-train', data),
+  nnProgress: (taskId) => request.get(`/ml/nn-progress/${taskId}`),
   nnPredict: (data) => request.post('/ml/nn-predict', data),
   salaryPredict: (data) => request.post('/ml/salary-predict', data)
 }

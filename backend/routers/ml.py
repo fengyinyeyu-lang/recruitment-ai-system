@@ -1,6 +1,8 @@
 """机器学习路由 - KMeans 聚类、神经网络训练/预测、薪资预测"""
 import pandas as pd
 import numpy as np
+import uuid
+import threading
 from collections import Counter
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -12,6 +14,17 @@ from backend.schemas.models import (
 )
 
 router = APIRouter(prefix="/api/ml", tags=["机器学习"])
+
+# 训练进度存储 {task_id: {progress, epoch, epochs, loss, acc, status, result}}
+_training_progress = {}
+
+
+@router.get("/nn-progress/{task_id}", response_model=ApiResponse)
+def get_nn_progress(task_id: str, username: str = Depends(get_current_user)):
+    """获取神经网络训练进度"""
+    if task_id not in _training_progress:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    return ApiResponse(data=_training_progress[task_id])
 
 
 @router.post("/kmeans", response_model=ApiResponse)
@@ -96,90 +109,127 @@ def run_kmeans(req: KMeansRequest, username: str = Depends(get_current_user)):
 
 @router.post("/nn-train", response_model=ApiResponse)
 def train_nn(req: NNTrainRequest, username: str = Depends(get_current_user)):
-    """训练神经网络，返回准确率、训练历史、分类报告"""
-    from src.data_pipeline.nlp_processor import build_embedding_matrix
-    from src.ml_engine import classifier
-    from sklearn.cluster import KMeans
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from src.data_pipeline.nlp_processor import DEFAULT_STOPWORDS, clean_text, tokenize, get_sampled_df, filter_words
-    import numpy as np
+    """启动神经网络训练，返回 task_id 用于轮询进度"""
+    task_id = str(uuid.uuid4())[:8]
+    _training_progress[task_id] = {
+        "progress": 0, "epoch": 0, "epochs": req.epochs,
+        "loss": 0, "acc": 0, "status": "preparing", "result": None
+    }
 
-    df = get_data_df()
-    if df is None or df.empty:
-        raise HTTPException(status_code=400, detail="暂无数据，无法训练模型")
+    def _train_task():
+        try:
+            from src.data_pipeline.nlp_processor import build_embedding_matrix
+            from src.ml_engine import classifier
+            from sklearn.cluster import KMeans
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from src.data_pipeline.nlp_processor import DEFAULT_STOPWORDS, clean_text, tokenize, get_sampled_df, filter_words
 
-    try:
-        # Step 1: 获取 Embedding
-        X = build_embedding_matrix(df, text_col='positionDetail', cache_name='classifier_emb_v3')
+            df = get_data_df()
+            if df is None or df.empty:
+                _training_progress[task_id]["status"] = "failed"
+                _training_progress[task_id]["result"] = {"error": "暂无数据"}
+                return
 
-        # Step 2: KMeans 生成伪标签
-        kmeans = KMeans(n_clusters=req.k, random_state=42, n_init=10)
-        y = kmeans.fit_predict(X)
+            # Step 1: 获取 Embedding
+            _training_progress[task_id]["status"] = "embedding"
+            _training_progress[task_id]["progress"] = 5
+            X = build_embedding_matrix(df, text_col='positionDetail', cache_name='classifier_emb_v3')
 
-        # 动态提取各簇特征词
-        cluster_names = {}
-        sampled_df = get_sampled_df(df, len(y))
+            # Step 2: KMeans 生成伪标签
+            _training_progress[task_id]["status"] = "clustering"
+            _training_progress[task_id]["progress"] = 15
+            kmeans = KMeans(n_clusters=req.k, random_state=42, n_init=10)
+            y = kmeans.fit_predict(X)
 
-        if 'positionDetail' in sampled_df.columns:
-            raw_texts = sampled_df['positionDetail'].fillna('').astype(str).tolist()
-        else:
-            parts = []
-            if 'positionName' in sampled_df.columns:
-                parts.append(sampled_df['positionName'].fillna('').astype(str))
-            if 'keyword' in sampled_df.columns:
-                parts.append(sampled_df['keyword'].fillna('').astype(str))
-            if parts:
-                combined = parts[0]
-                for p in parts[1:]:
-                    combined = combined + ' ' + p
-                raw_texts = combined.tolist()
+            # 动态提取各簇特征词
+            cluster_names = {}
+            sampled_df = get_sampled_df(df, len(y))
+
+            if 'positionDetail' in sampled_df.columns:
+                raw_texts = sampled_df['positionDetail'].fillna('').astype(str).tolist()
             else:
-                raw_texts = [''] * len(sampled_df)
+                parts = []
+                if 'positionName' in sampled_df.columns:
+                    parts.append(sampled_df['positionName'].fillna('').astype(str))
+                if 'keyword' in sampled_df.columns:
+                    parts.append(sampled_df['keyword'].fillna('').astype(str))
+                if parts:
+                    combined = parts[0]
+                    for p in parts[1:]:
+                        combined = combined + ' ' + p
+                    raw_texts = combined.tolist()
+                else:
+                    raw_texts = [''] * len(sampled_df)
 
-        sample_texts = [tokenize(clean_text(t)) for t in raw_texts]
-        vec = TfidfVectorizer(min_df=5, stop_words=list(DEFAULT_STOPWORDS))
-        tfidf_matrix = vec.fit_transform(sample_texts)
-        feature_names = vec.get_feature_names_out()
+            sample_texts = [tokenize(clean_text(t)) for t in raw_texts]
+            vec = TfidfVectorizer(min_df=5, stop_words=list(DEFAULT_STOPWORDS))
+            tfidf_matrix = vec.fit_transform(sample_texts)
+            feature_names = vec.get_feature_names_out()
 
-        for c_idx in range(req.k):
-            c_indices = [i for i, label in enumerate(y) if label == c_idx]
-            other_indices = [i for i, label in enumerate(y) if label != c_idx]
-            if c_indices and other_indices:
-                c_mean = np.asarray(tfidf_matrix[c_indices].mean(axis=0)).flatten()
-                other_mean = np.asarray(tfidf_matrix[other_indices].mean(axis=0)).flatten()
-                eps = 0.01
-                rel_spec = c_mean * np.log((c_mean + eps) / (other_mean + eps))
-                top_indices = rel_spec.argsort()[-5:][::-1]
-                top_words = filter_words([feature_names[i] for i in top_indices])
-                cluster_names[c_idx] = top_words
-            elif c_indices:
-                c_mean = np.asarray(tfidf_matrix[c_indices].mean(axis=0)).flatten()
-                top_indices = c_mean.argsort()[-5:][::-1]
-                top_words = filter_words([feature_names[i] for i in top_indices])
-                cluster_names[c_idx] = top_words
-            else:
-                cluster_names[c_idx] = "未知特征"
+            for c_idx in range(req.k):
+                c_indices = [i for i, label in enumerate(y) if label == c_idx]
+                other_indices = [i for i, label in enumerate(y) if label != c_idx]
+                if c_indices and other_indices:
+                    c_mean = np.asarray(tfidf_matrix[c_indices].mean(axis=0)).flatten()
+                    other_mean = np.asarray(tfidf_matrix[other_indices].mean(axis=0)).flatten()
+                    eps = 0.01
+                    rel_spec = c_mean * np.log((c_mean + eps) / (other_mean + eps))
+                    top_indices = rel_spec.argsort()[-5:][::-1]
+                    top_words = filter_words([feature_names[i] for i in top_indices])
+                    cluster_names[c_idx] = top_words
+                elif c_indices:
+                    c_mean = np.asarray(tfidf_matrix[c_indices].mean(axis=0)).flatten()
+                    top_indices = c_mean.argsort()[-5:][::-1]
+                    top_words = filter_words([feature_names[i] for i in top_indices])
+                    cluster_names[c_idx] = top_words
+                else:
+                    cluster_names[c_idx] = "未知特征"
 
-        # Step 3: 训练 MLP
-        acc, history, report = classifier.train(
-            X, y, epochs=req.epochs, learning_rate=req.learning_rate
-        )
+            # Step 3: 训练 MLP（带进度回调）
+            _training_progress[task_id]["status"] = "training"
 
-        # 转换 history 中的 numpy 类型
-        serializable_history = {
-            "train_loss": [round(float(v), 4) for v in history.get('train_loss', [])],
-            "val_acc": [round(float(v), 4) for v in history.get('val_acc', [])],
-        }
+            def on_progress(epoch, epochs, loss, acc):
+                pct = int(20 + (epoch / epochs) * 80)  # 20%~100%
+                _training_progress[task_id].update({
+                    "progress": pct,
+                    "epoch": epoch,
+                    "epochs": epochs,
+                    "loss": round(float(loss), 4),
+                    "acc": round(float(acc), 4),
+                })
 
-        return ApiResponse(data=NNTrainResult(
-            accuracy=round(float(acc), 4),
-            history=serializable_history,
-            report=report,
-            cluster_names=cluster_names,
-        ).model_dump())
+            acc, history, report = classifier.train(
+                X, y, epochs=req.epochs, learning_rate=req.learning_rate,
+                progress_callback=on_progress
+            )
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"模型训练失败: {str(e)}")
+            serializable_history = {
+                "train_loss": [round(float(v), 4) for v in history.get('train_loss', [])],
+                "val_acc": [round(float(v), 4) for v in history.get('val_acc', [])],
+            }
+
+            _training_progress[task_id].update({
+                "progress": 100,
+                "status": "completed",
+                "result": {
+                    "accuracy": round(float(acc), 4),
+                    "history": serializable_history,
+                    "report": report,
+                    "cluster_names": cluster_names,
+                }
+            })
+
+        except Exception as e:
+            _training_progress[task_id].update({
+                "status": "failed",
+                "result": {"error": str(e)}
+            })
+
+    # 在后台线程中启动训练
+    thread = threading.Thread(target=_train_task, daemon=True)
+    thread.start()
+
+    return ApiResponse(data={"task_id": task_id})
 
 
 @router.post("/nn-predict", response_model=ApiResponse)

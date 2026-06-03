@@ -8,10 +8,13 @@
           <div class="control-bar">
             <div class="control-item">
               <span class="control-label">聚类数 K：</span>
-              <el-slider v-model="kmeansK" :min="2" :max="10" :show-input="true" input-size="small" style="width: 250px;" />
+              <el-slider v-model="kmeansK" :min="2" :max="10" :show-input="true" input-size="small"
+                style="width: 250px;" />
             </div>
             <el-button type="primary" :loading="kmeansLoading" @click="runKmeans">
-              <el-icon><Cpu /></el-icon> 开始聚类
+              <el-icon>
+                <Cpu />
+              </el-icon> 开始聚类
             </el-button>
           </div>
 
@@ -24,13 +27,8 @@
                 <div v-for="(keywords, index) in kmeansResult.cluster_keywords" :key="index" class="cluster-group">
                   <div class="cluster-label">簇 {{ index + 1 }}</div>
                   <div class="cluster-tag-list">
-                    <el-tag
-                      v-for="kw in keywords"
-                      :key="kw"
-                      :type="tagTypes[index % tagTypes.length]"
-                      effect="plain"
-                      class="cluster-tag"
-                    >
+                    <el-tag v-for="kw in keywords" :key="kw" :type="tagTypes[index % tagTypes.length]" effect="plain"
+                      class="cluster-tag">
                       {{ kw }}
                     </el-tag>
                   </div>
@@ -85,20 +83,16 @@
               </el-row>
               <el-form-item>
                 <el-button type="primary" :loading="nnTraining" @click="trainNN">
-                  <el-icon><VideoPlay /></el-icon> 开始训练
+                  <el-icon>
+                    <VideoPlay />
+                  </el-icon> 开始训练
                 </el-button>
               </el-form-item>
             </el-form>
 
             <!-- 训练进度 -->
-            <el-progress
-              v-if="nnTraining"
-              :percentage="trainProgress"
-              :stroke-width="20"
-              :text-inside="true"
-              style="margin-top: 16px;"
-              status="success"
-            />
+            <el-progress v-if="nnTraining" :percentage="trainProgress" :stroke-width="20" :text-inside="true"
+              style="margin-top: 16px;" status="success" />
           </div>
 
           <!-- 训练结果 -->
@@ -149,16 +143,14 @@
                 </el-row>
                 <el-form-item>
                   <el-button type="success" :loading="predictLoading" @click="predictSalary">
-                    <el-icon><Aim /></el-icon> 预测
+                    <el-icon>
+                      <Aim />
+                    </el-icon> 预测
                   </el-button>
                 </el-form-item>
               </el-form>
 
-              <el-result
-                v-if="predictResult"
-                icon="success"
-                :title="`预测薪资区间：${predictResult}`"
-              />
+              <el-result v-if="predictResult" icon="success" :title="`预测薪资区间：${predictResult}`" />
             </div>
           </template>
         </div>
@@ -176,6 +168,7 @@ import { ScatterChart, LineChart, BarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent, LegendComponent } from 'echarts/components'
 import { mlAPI } from '@/api'
 import { getChartColors } from '@/utils'
+import { ElMessage } from 'element-plus'
 
 use([CanvasRenderer, ScatterChart, LineChart, BarChart, TitleComponent, TooltipComponent, GridComponent, LegendComponent])
 
@@ -304,37 +297,48 @@ async function trainNN() {
   nnResult.value = null
   predictResult.value = ''
 
-  // 模拟进度
-  const progressTimer = setInterval(() => {
-    if (trainProgress.value < 90) {
-      trainProgress.value += Math.random() * 10
-    }
-  }, 500)
-
   try {
-    const res = await mlAPI.nnTrain({
+    // 启动训练，获取 task_id
+    const startRes = await mlAPI.nnTrain({
       k: nnParams.value.k,
       epochs: nnParams.value.epochs,
       learning_rate: nnParams.value.lr
     })
-    const rawData = res.data.data
-    // Transform to frontend structure
-    nnResult.value = {
-      accuracy: rawData.accuracy,
-      history: {
-        epochs: Array.from({ length: (rawData.history?.train_loss || []).length }, (_, i) => i + 1),
-        loss: rawData.history?.train_loss || [],
-        accuracy: rawData.history?.val_acc || []
-      },
-      classification_report: parseReport(rawData.report),
-      cluster_names: rawData.cluster_names
-    }
-    trainProgress.value = 100
-  } catch {
-    // 错误已在拦截器中处理
-  } finally {
-    clearInterval(progressTimer)
+    const taskId = startRes.data.data.task_id
+
+    // 轮询真实进度
+    const pollTimer = setInterval(async () => {
+      try {
+        const res = await mlAPI.nnProgress(taskId)
+        const p = res.data.data
+        trainProgress.value = p.progress
+
+        if (p.status === 'completed') {
+          clearInterval(pollTimer)
+          const r = p.result
+          nnResult.value = {
+            accuracy: r.accuracy,
+            history: {
+              epochs: Array.from({ length: (r.history?.train_loss || []).length }, (_, i) => i + 1),
+              loss: r.history?.train_loss || [],
+              accuracy: r.history?.val_acc || []
+            },
+            classification_report: parseReport(r.report),
+            cluster_names: r.cluster_names
+          }
+          setTimeout(() => { nnTraining.value = false }, 600)
+        } else if (p.status === 'failed') {
+          clearInterval(pollTimer)
+          nnTraining.value = false
+          ElMessage.error(r?.result?.error || '训练失败')
+        }
+      } catch {
+        // 轮询失败，继续尝试
+      }
+    }, 1000)
+  } catch (e) {
     nnTraining.value = false
+    console.error('启动训练失败:', e)
   }
 }
 
