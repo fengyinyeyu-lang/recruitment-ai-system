@@ -330,7 +330,7 @@ async function trainNN() {
         } else if (p.status === 'failed') {
           clearInterval(pollTimer)
           nnTraining.value = false
-          ElMessage.error(r?.result?.error || '训练失败')
+          ElMessage.error(p.result?.error || '训练失败，请检查控制台日志')
         }
       } catch {
         // 轮询失败，继续尝试
