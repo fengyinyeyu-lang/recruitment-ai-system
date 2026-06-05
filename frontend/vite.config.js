@@ -29,7 +29,17 @@ export default defineConfig({
     proxy: {
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true
+        changeOrigin: true,
+        timeout: 300000,
+        configure: (proxy) => {
+          proxy.on('proxyRes', (proxyRes) => {
+            // SSE 响应禁用缓冲
+            if (proxyRes.headers['content-type']?.includes('text/event-stream')) {
+              proxyRes.headers['cache-control'] = 'no-cache'
+              proxyRes.headers['x-accel-buffering'] = 'no'
+            }
+          })
+        }
       }
     }
   }

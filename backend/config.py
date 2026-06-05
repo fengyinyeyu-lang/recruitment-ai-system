@@ -4,6 +4,15 @@ import os
 # 项目根目录
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
+# 加载 .env 环境变量
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(PROJECT_ROOT, 'config', '.env')
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=True)
+except ImportError:
+    pass
+
 # JWT 配置
 SECRET_KEY = "recruitment-ai-secret-key-2024"
 ALGORITHM = "HS256"

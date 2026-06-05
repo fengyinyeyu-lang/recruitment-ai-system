@@ -91,6 +91,15 @@ export const mlAPI = {
 export const aiAPI = {
   chat: (data) => request.post('/ai/chat', data),
   ragChat: (data) => request.post('/ai/rag-chat', data),
+  agentChat: (data) => request.post('/ai/agent-chat', data),
+  agentChatStream: (data) => fetch('/api/ai/agent-chat-stream', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('token')}`
+    },
+    body: JSON.stringify(data)
+  }),
   getFollowup: (params) => request.get('/ai/followup', { params }),
   rebuildRag: () => request.post('/ai/rebuild-rag')
 }

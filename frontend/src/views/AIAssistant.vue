@@ -9,11 +9,14 @@
             <p>基于 RAG 知识库的招聘领域 AI 问答，为您提供专业的求职建议</p>
           </div>
           <div class="header-controls">
-            <div class="rag-switch">
-              <span class="switch-label">RAG 模式</span>
-              <el-switch v-model="ragMode" active-text="开" inactive-text="关" />
+            <div class="mode-switch">
+              <el-radio-group v-model="chatMode" size="small">
+                <el-radio-button value="agent">智能体</el-radio-button>
+                <el-radio-button value="rag">RAG</el-radio-button>
+                <el-radio-button value="normal">普通</el-radio-button>
+              </el-radio-group>
             </div>
-            <el-button size="small" type="warning" :loading="rebuilding" @click="rebuildRAG">
+            <el-button v-if="chatMode !== 'agent'" size="small" type="warning" :loading="rebuilding" @click="rebuildRAG">
               <el-icon><RefreshRight /></el-icon> 重建知识库
             </el-button>
           </div>
@@ -54,7 +57,18 @@
             </el-avatar>
           </div>
           <div class="message-body">
-            <div class="message-content" v-html="msg.role === 'assistant' ? renderMarkdown(msg.content) : msg.content"></div>
+            <div v-if="msg.role === 'assistant'" class="message-content">
+              <!-- 流式输出中：显示纯文本 + 光标动画 -->
+              <template v-if="msg.streaming">
+                <span class="streaming-text">{{ msg.content }}</span>
+                <span class="streaming-cursor">|</span>
+              </template>
+              <!-- 流式输出完成：渲染 Markdown -->
+              <template v-else>
+                <div v-html="renderMarkdown(msg.content)"></div>
+              </template>
+            </div>
+            <div v-else class="message-content">{{ msg.content }}</div>
             <!-- 知识来源 -->
             <div v-if="msg.sources && msg.sources.length" class="message-sources">
               <el-collapse>
@@ -69,8 +83,8 @@
           </div>
         </div>
 
-        <!-- 加载中 -->
-        <div v-if="chatLoading" class="message assistant">
+        <!-- 加载中（仅非智能体模式显示） -->
+        <div v-if="chatLoading && chatMode !== 'agent'" class="message assistant">
           <div class="message-avatar">
             <el-avatar :size="32" class="avatar-ai">
               <el-icon><Cpu /></el-icon>
@@ -115,11 +129,12 @@ import { ref, nextTick } from 'vue'
 import { aiAPI } from '@/api'
 import { renderMarkdown } from '@/utils'
 
-const ragMode = ref(true)
+const chatMode = ref('agent')
 const chatLoading = ref(false)
 const rebuilding = ref(false)
 const inputText = ref('')
 const messagesRef = ref(null)
+const agentSessionId = ref(null)
 
 const messages = ref([])
 
@@ -130,12 +145,18 @@ const quickQuestions = [
   '如何提高面试通过率？'
 ]
 
+// 节流滚动：避免每个 chunk 都触发 DOM 操作
+let scrollTimer = null
 function scrollToBottom() {
-  nextTick(() => {
-    if (messagesRef.value) {
-      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
-    }
-  })
+  if (scrollTimer) return
+  scrollTimer = setTimeout(() => {
+    scrollTimer = null
+    nextTick(() => {
+      if (messagesRef.value) {
+        messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+      }
+    })
+  }, 50)
 }
 
 async function sendMessage() {
@@ -148,23 +169,78 @@ async function sendMessage() {
   scrollToBottom()
 
   try {
-    let res
-    if (ragMode.value) {
-      res = await aiAPI.ragChat({ message: text, history: [] })
-    } else {
-      res = await aiAPI.chat({ message: text, history: [] })
-    }
+    if (chatMode.value === 'agent') {
+      // 智能体模式：流式接收
+      const assistantMsg = { role: 'assistant', content: '', sources: [], streaming: true }
+      messages.value.push(assistantMsg)
+      const msgIndex = messages.value.length - 1
 
-    const data = res.data.data
-    messages.value.push({
-      role: 'assistant',
-      content: data.reply || '暂无回复',
-      sources: data.sources || []
-    })
+      const response = await aiAPI.agentChatStream({
+        message: text,
+        session_id: agentSessionId.value
+      })
+
+      if (!response.ok) {
+        messages.value[msgIndex].content = '抱歉，请求出错了，请稍后重试。'
+        messages.value[msgIndex].streaming = false
+        return
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const chunk = JSON.parse(line.slice(6))
+            if (chunk.type === 'text') {
+              messages.value[msgIndex].content += chunk.content
+              scrollToBottom()
+            } else if (chunk.type === 'done') {
+              if (chunk.session_id) {
+                agentSessionId.value = chunk.session_id
+              }
+              // 流式结束，切换到 Markdown 渲染
+              messages.value[msgIndex].streaming = false
+            }
+          } catch { /* 忽略解析错误 */ }
+        }
+      }
+      // 兜底：确保 streaming 状态关闭
+      if (messages.value[msgIndex].streaming) {
+        messages.value[msgIndex].streaming = false
+      }
+    } else {
+      // RAG / 普通模式：同步请求
+      let res
+      if (chatMode.value === 'rag') {
+        res = await aiAPI.ragChat({ message: text, history: [] })
+      } else {
+        res = await aiAPI.chat({ message: text, history: [] })
+      }
+
+      const data = res.data.data
+      messages.value.push({
+        role: 'assistant',
+        content: data.reply || '暂无回复',
+        sources: data.sources || [],
+        streaming: false
+      })
+    }
   } catch {
     messages.value.push({
       role: 'assistant',
-      content: '抱歉，请求出错了，请稍后重试。'
+      content: '抱歉，请求出错了，请稍后重试。',
+      streaming: false
     })
   } finally {
     chatLoading.value = false
@@ -217,19 +293,10 @@ async function rebuildRAG() {
   gap: 16px;
 }
 
-.rag-switch {
+.mode-switch {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.15);
-  padding: 6px 12px;
-  border-radius: 8px;
-}
-
-.switch-label {
-  font-size: 13px;
-  color: #ffffff;
-  font-weight: 500;
 }
 
 .chat-container {
@@ -395,6 +462,19 @@ async function rebuildRAG() {
   font-size: 12px;
   color: var(--color-text-secondary);
   line-height: 1.5;
+}
+
+/* 流式输出光标 */
+.streaming-cursor {
+  display: inline-block;
+  animation: blink 0.8s step-end infinite;
+  color: var(--color-text-secondary);
+  font-weight: 300;
+  margin-left: 1px;
+}
+
+@keyframes blink {
+  50% { opacity: 0; }
 }
 
 /* 输入中动画 */

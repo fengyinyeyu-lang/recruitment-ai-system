@@ -134,10 +134,16 @@ class ChatRequest(BaseModel):
     rag_mode: bool = False
 
 
+class AgentChatRequest(BaseModel):
+    message: str
+    session_id: Optional[str] = None
+
+
 class ChatResponse(BaseModel):
     reply: str
     sources: list = []
     followup_questions: list = []
+    session_id: Optional[str] = None
 
 
 # ============ 简历相关 ============

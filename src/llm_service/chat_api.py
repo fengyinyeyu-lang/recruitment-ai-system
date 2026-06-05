@@ -1,10 +1,14 @@
 """
 大模型服务模块（模块5）
 封装通义千问 DashScope API 的调用逻辑。
+支持两种模式：
+  - 原生模型对话（qwen-turbo）
+  - 百炼智能体对话（Application.call）
 """
 import os
 import dashscope
 import logging
+from http import HTTPStatus
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -117,4 +121,116 @@ def generate_followup_questions(history):
 
     from src.llm_service.prompts import get_random_prompts
     return get_random_prompts(2)
+
+
+def chat_with_agent(user_input, history=None, session_id=None):
+    """
+    调用百炼智能体应用进行对话
+
+    参数:
+        user_input: 用户当前输入
+        history: 历史对话列表（智能体模式下由 session_id 管理上下文，此参数备用）
+        session_id: 会话ID，传入后智能体可自动维护多轮上下文
+
+    返回:
+        (reply, session_id) 元组
+    """
+    from dashscope import Application
+
+    api_key = os.getenv("DASHSCOPE_API_KEY")
+    if not api_key:
+        return "⚠️ 错误：未检测到 DASHSCOPE_API_KEY 环境变量，请在系统环境变量中配置后重启应用。", None
+
+    app_id = os.getenv("DASHSCOPE_APP_ID")
+    if not app_id:
+        return "⚠️ 错误：未检测到 DASHSCOPE_APP_ID 环境变量，请在 .env 中配置智能体应用 ID。", None
+
+    try:
+        kwargs = dict(
+            api_key=api_key,
+            app_id=app_id,
+            prompt=user_input,
+        )
+        # 传入 session_id 实现多轮对话
+        if session_id:
+            kwargs["session_id"] = session_id
+
+        response = Application.call(**kwargs)
+
+        if response.status_code == HTTPStatus.OK:
+            reply = response.output.text
+            new_session_id = response.output.session_id if hasattr(response.output, 'session_id') else None
+            return reply, new_session_id
+        else:
+            return f"⚠️ 智能体调用失败 [{response.status_code}]: {response.message}", None
+    except Exception as e:
+        logging.error(f"智能体请求异常: {e}")
+        return f"⚠️ 请求异常: {str(e)}", None
+
+
+def chat_with_agent_stream(user_input, session_id=None):
+    """
+    流式调用百炼智能体应用，逐段返回文本。
+
+    参数:
+        user_input: 用户当前输入
+        session_id: 会话ID
+
+    生成:
+        dict: {"type": "text", "content": "..."} 或 {"type": "done", "session_id": "..."}
+    """
+    import time
+    from dashscope import Application
+
+    api_key = os.getenv("DASHSCOPE_API_KEY")
+    if not api_key:
+        yield {"type": "text", "content": "⚠️ 错误：未检测到 DASHSCOPE_API_KEY 环境变量。"}
+        yield {"type": "done", "session_id": None}
+        return
+
+    app_id = os.getenv("DASHSCOPE_APP_ID")
+    if not app_id:
+        yield {"type": "text", "content": "⚠️ 错误：未检测到 DASHSCOPE_APP_ID 环境变量。"}
+        yield {"type": "done", "session_id": None}
+        return
+
+    try:
+        kwargs = dict(
+            api_key=api_key,
+            app_id=app_id,
+            prompt=user_input,
+            stream=True,
+            incremental_output=True,
+        )
+        if session_id:
+            kwargs["session_id"] = session_id
+
+        start_time = time.time()
+        responses = Application.call(**kwargs)
+        new_session_id = None
+        first_token = True
+
+        for response in responses:
+            if response.status_code == HTTPStatus.OK:
+                text = response.output.text if hasattr(response.output, 'text') else ""
+                if text:
+                    if first_token:
+                        latency = (time.time() - start_time) * 1000
+                        logging.info(f"[Agent] 首 Token 延迟: {latency:.0f}ms")
+                        first_token = False
+                    yield {"type": "text", "content": text}
+                if hasattr(response.output, 'session_id') and response.output.session_id:
+                    new_session_id = response.output.session_id
+            else:
+                yield {"type": "text", "content": f"⚠️ 智能体调用失败 [{response.status_code}]: {response.message}"}
+                break
+
+        total_time = (time.time() - start_time) * 1000
+        logging.info(f"[Agent] 总耗时: {total_time:.0f}ms")
+        yield {"type": "done", "session_id": new_session_id}
+
+    except Exception as e:
+        logging.error(f"智能体流式请求异常: {e}")
+        yield {"type": "text", "content": f"⚠️ 请求异常: {str(e)}"}
+        yield {"type": "done", "session_id": None}
 
