@@ -56,12 +56,12 @@ def get_salary_distribution(username: str = Depends(get_current_user)):
 
 @router.get("/city-salary", response_model=ApiResponse)
 def get_city_salary(username: str = Depends(get_current_user)):
-    """返回 Top10 城市薪资数据"""
+    """返回 Top15 城市薪资数据"""
     df = get_data_df()
     if df is None or df.empty or 'city' not in df.columns or 'salary_avg' not in df.columns:
         return ApiResponse(data=None, message="暂无城市薪资数据")
 
-    city_salary = df.groupby('city')['salary_avg'].agg(['mean', 'count']).sort_values('mean', ascending=False).head(10)
+    city_salary = df.groupby('city')['salary_avg'].agg(['mean', 'count']).sort_values('mean', ascending=False).head(15)
 
     return ApiResponse(data={
         "cities": city_salary.index.tolist(),
@@ -134,13 +134,13 @@ def get_position_demand(username: str = Depends(get_current_user)):
         df = get_data_df()
         if df is None or df.empty or 'keyword' not in df.columns:
             return ApiResponse(data=None, message="暂无岗位需求数据")
-        kw_counts = df['keyword'].value_counts().head(20)
+        kw_counts = df['keyword'].value_counts().head(15)
         return ApiResponse(data={
             "keywords": kw_counts.index.tolist(),
             "counts": kw_counts.values.tolist(),
         })
 
-    top = count_df.head(20)
+    top = count_df.head(15)
     return ApiResponse(data={
         "keywords": top['keyword'].tolist(),
         "counts": top['count'].tolist(),

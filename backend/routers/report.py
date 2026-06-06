@@ -81,6 +81,11 @@ def generate_report(req: ReportRequest, username: str = Depends(get_current_user
     title = "招聘数据分析报告"
     subtitle = f"分析范围: {req.city} | {req.keyword} | 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
+    # 预处理防止 NoneType 和 IndexError
+    top_city_name = cs.index[0] if cs is not None and len(cs) > 0 else "N/A"
+    top_city_salary = f"{cs.iloc[0]:.1f}K" if cs is not None and len(cs) > 0 else "N/A"
+    top_demand_name = dem.index[0] if dem is not None and len(dem) > 0 else "N/A"
+
     html_content = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -150,8 +155,8 @@ def generate_report(req: ReportRequest, username: str = Depends(get_current_user
         <h2>💡 分析洞察与建议</h2>
         <ul style="padding-left:20px; line-height:2; color:#555;">
             <li>📊 本次分析覆盖 <b>{total:,}</b> 条岗位数据，平均薪资 <b>{avg_salary:.1f}K</b></li>
-            <li>🏙️ 薪资最高城市为 <b>{cs.index[0] if cs is not None and len(cs) > 0 else "N/A"}</b>，平均 <b>{cs.iloc[0]:.1f}K</b></li>
-            <li>🔥 需求量最大的岗位类别为 <b>{dem.index[0] if dem is not None and len(dem) > 0 else "N/A"}</b></li>
+            <li>🏙️ 薪资最高城市为 <b>{top_city_name}</b>，平均 <b>{top_city_salary}</b></li>
+            <li>🔥 需求量最大的岗位类别为 <b>{top_demand_name}</b></li>
             <li>📈 建议求职者关注高薪赛道，同时结合自身技能选择匹配度高的岗位</li>
         </ul>
     </div>
