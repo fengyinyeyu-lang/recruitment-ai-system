@@ -37,3 +37,6 @@ frontend/.vite/
 
 # Backend
 *.db
+
+# Local run cache
+data/stats.json
