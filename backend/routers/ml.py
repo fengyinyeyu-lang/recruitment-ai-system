@@ -259,23 +259,110 @@ def nn_predict(req: NNPredictRequest, username: str = Depends(get_current_user))
 
 @router.post("/salary-predict", response_model=ApiResponse)
 def salary_predict(req: SalaryPredictRequest, username: str = Depends(get_current_user)):
-    """薪资预测"""
-    from src.ml_engine.classifier import predict_salary
+    """薪资预测 (改为真实数据统计筛选方案)"""
+    import re
+    
+    df = get_data_df()
+    if df is None or df.empty:
+        raise HTTPException(status_code=400, detail="暂无数据，无法预测")
 
     try:
-        predicted, confidence = predict_salary({
-            "city": req.city,
-            "education": req.education,
-            "workYear": req.workYear,
-            "keyword": req.keyword,
-        })
+        req_city = (req.city or "").strip()
+        req_edu = (req.education or "").strip()
+        req_kw = (req.keyword or "").strip().lower()
+        
+        # 解析前端传来的经验年限
+        req_exp = 0
+        if req.workYear:
+            nums = re.findall(r'\d+', str(req.workYear))
+            if nums:
+                req_exp = int(nums[-1])
+
+        # 获取含薪资的数据
+        filtered_df = df.copy()
+        if 'salary_avg' not in filtered_df.columns:
+            raise HTTPException(status_code=500, detail="数据集中缺少薪资列")
+            
+        filtered_df = filtered_df.dropna(subset=['salary_avg'])
+
+        # 第1级严格筛选：城市 + 学历 + 岗位关键字
+        if req_city:
+            # 对于 '北京'，也可以匹配 '北京市'
+            mask_city = filtered_df['city'].fillna('').str.contains(req_city, na=False)
+        else:
+            mask_city = pd.Series([True]*len(filtered_df), index=filtered_df.index)
+            
+        if req_edu:
+            # 简化学历以提升匹配率
+            edu_map = {"大专": "大专|专科", "本科": "本科", "硕士": "硕士", "博士": "博士"}
+            regex_edu = edu_map.get(req_edu, req_edu)
+            mask_edu = filtered_df['education'].fillna('').str.contains(regex_edu, regex=True, na=False)
+        else:
+            mask_edu = pd.Series([True]*len(filtered_df), index=filtered_df.index)
+            
+        if req_kw:
+            mask_kw = filtered_df['keyword'].fillna('').str.lower().str.contains(req_kw, na=False)
+            # 如果 keyword 列为空或者匹配不到，尝试从 positionName 匹配
+            mask_pos = filtered_df['positionName'].fillna('').str.lower().str.contains(req_kw, na=False)
+            mask_kw = mask_kw | mask_pos
+        else:
+            mask_kw = pd.Series([True]*len(filtered_df), index=filtered_df.index)
+        
+        strict_df = filtered_df[mask_city & mask_edu & mask_kw]
+        
+        # 经验年限过滤
+        def parse_exp(x):
+            if pd.isna(x): return 0
+            x = str(x)
+            if '不限' in x or '应届' in x: return 0
+            nums = re.findall(r'\d+', x)
+            return int(nums[-1]) if nums else 0
+
+        if len(strict_df) > 0:
+            strict_df = strict_df.copy()
+            work_col = 'workYear' if 'workYear' in strict_df.columns else 'work_year'
+            if work_col in strict_df.columns:
+                strict_df['parsed_exp'] = strict_df[work_col].apply(parse_exp)
+                # 匹配 +/- 3年 内的经验要求
+                exp_df = strict_df[abs(strict_df['parsed_exp'] - req_exp) <= 3]
+                if len(exp_df) >= 3:
+                    strict_df = exp_df
+
+        # 降级匹配策略
+        if len(strict_df) >= 3:
+            final_df = strict_df
+            confidence = "高"
+        else:
+            # 第2级：同城市 + 同岗位 (忽略学历和年限)
+            level2_df = filtered_df[mask_city & mask_kw]
+            if len(level2_df) >= 3:
+                final_df = level2_df
+                confidence = "中"
+            else:
+                # 第3级：只看同岗位 (跨城)
+                level3_df = filtered_df[mask_kw]
+                if len(level3_df) >= 5:
+                    final_df = level3_df
+                    confidence = "较低"
+                else:
+                    # 终极兜底：同城市或全网平均
+                    if mask_city.sum() >= 10:
+                        final_df = filtered_df[mask_city]
+                    else:
+                        final_df = filtered_df
+                    confidence = "极低(样本不足)"
+
+        # 方案一核心：使用真实数据的中位数
+        median_salary = final_df['salary_avg'].median()
+        if pd.isna(median_salary):
+            median_salary = filtered_df['salary_avg'].median()
+            
+        predicted = round(float(median_salary), 1)
 
         return ApiResponse(data=SalaryPredictResult(
             predicted_salary=predicted,
             confidence=confidence,
         ).model_dump())
 
-    except FileNotFoundError as e:
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"薪资预测失败: {str(e)}")

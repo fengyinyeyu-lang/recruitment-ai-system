@@ -369,15 +369,44 @@ def predict_salary(features_dict, model=None):
 
     # 构建特征向量
     feature_vec = []
+    
+    edu_map = {
+        "大专": "大学专科",
+        "本科": "大学本科",
+        "硕士": "硕士研究生",
+        "博士": "博士研究生",
+        "高中": "普通高中",
+        "中专": "中等专科"
+    }
+
     for col in feature_names:
         if col in encoders:
             # 类别特征
             val = features_dict.get(col, '未知')
-            val_str = str(val)
+            val_str = str(val).strip()
+            
+            # 对关键字转大写
+            if col == 'keyword':
+                val_str = val_str.upper()
+                
             if val_str in encoders[col]:
                 feature_vec.append(encoders[col][val_str])
             else:
-                feature_vec.append(0)
+                # 尝试别名映射
+                matched = False
+                if col == 'city':
+                    city_with_shi = val_str + "市"
+                    if city_with_shi in encoders[col]:
+                        feature_vec.append(encoders[col][city_with_shi])
+                        matched = True
+                elif col == 'education':
+                    mapped_edu = edu_map.get(val_str, val_str)
+                    if mapped_edu in encoders[col]:
+                        feature_vec.append(encoders[col][mapped_edu])
+                        matched = True
+                
+                if not matched:
+                    feature_vec.append(0)
         elif col == 'exp_years':
             # 数值特征
             val = features_dict.get('workYear', '0')
